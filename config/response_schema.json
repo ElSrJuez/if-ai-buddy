@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "properties": {
+    "game-last-objects": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "One item per object: 'object — room — actions' (no extra prose)."
+      },
+      "minItems": 5,
+      "maxItems": 5,
+      "description": "Short list (up to 5) of the most recent objects seen; include the room and any actions taken."
+    },
+    "game-room-path": {
+      "type": "string",
+      "description": "A single sentence that succintly mentions exactly the last 4 rooms (in order) visited and how the player moved to each."
+    },
+    "game-last-changes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "One item per change: 'change — trigger' (no extra prose)."
+      },
+      "minItems": 5,
+      "maxItems": 5,
+      "description": "Short list (up to 5) of the most recent world changes and what triggered them."
+    },
+    "game-intent": {
+      "type": "string",
+      "description": "Brief, non-duplicative summary of what the game is presenting as the current situation."
+    },
+    "game-meta-intent": {
+      "type": "string",
+      "description": "High-level interpretation of the game's wider goal or story direction."
+    },
+    "hidden-next-command": {
+      "type": "string",
+      "description": "One actionable parser command the player could enter next."
+    },
+    "hidden-next-command-confidence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Confidence (0–100) the command will not only heuristically go through, but also actually progress the player in the game story."
+    },
+    "narration": {
+      "type": "string",
+      "description": "Fun, explanatory without being duplicit, in-role commentary intended to enhance what's already on the screen without being redundant, spoiler-y or overtly inventive. Make it one or two short sentences."
+    }
+  },
+  "required": [
+    "game-intent",
+    "game-meta-intent",
+    "hidden-next-command",
+    "hidden-next-command-confidence",
+    "narration"
+  ],
+  "additionalProperties": false
+}
