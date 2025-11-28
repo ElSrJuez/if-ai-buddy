@@ -14,7 +14,8 @@
   "session_label": "if-ai-buddy",
   "player_name": "player",
   "system_log_template": "log/{player}.log",
-  "player_log_template": "log/{player}.jsonl",
+  "game_log_template": "log/{player}_game.jsonl",
+  "interaction_log_template": "log/{player}_interaction.jsonl",
   "completions_log_template": "log/{player}_completions.jsonl",
   "voice_settings": {
     "voice": "en_US-lessac-high"

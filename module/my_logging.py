@@ -13,18 +13,20 @@ from typing import Any
 
 _config: dict[str, Any] = {}
 _SYSTEM_LOG_PATH = ""
-_PLAYER_LOG_PATH = ""
+_GAME_LOG_PATH = ""
+_INTERACTION_LOG_PATH = ""
 _COMPLETIONS_LOG_PATH = ""
 _debug_enabled = False
 
 system_logger = logging.getLogger("mysystemlog")
-player_logger = logging.getLogger("myplayerlog")
+game_logger = logging.getLogger("mygamelog")
+interaction_logger = logging.getLogger("myinteractionlog")
 completions_logger = logging.getLogger("mycompletionslog")
 
 
 def init(player_name: str, config_file: str = "config.json") -> None:
     """Initialize logging: ensures config-driven paths and log levels."""
-    global _config, _SYSTEM_LOG_PATH, _PLAYER_LOG_PATH, _COMPLETIONS_LOG_PATH, _debug_enabled
+    global _config, _SYSTEM_LOG_PATH, _GAME_LOG_PATH, _INTERACTION_LOG_PATH, _COMPLETIONS_LOG_PATH, _debug_enabled
     with open(config_file, "r", encoding="utf-8") as f:
         _config = json.load(f)
 
@@ -32,17 +34,22 @@ def init(player_name: str, config_file: str = "config.json") -> None:
     _debug_enabled = log_level <= logging.DEBUG
 
     _SYSTEM_LOG_PATH = _format_template(_require("system_log_template"), player_name)
-    _PLAYER_LOG_PATH = _format_template(_require("player_log_template"), player_name)
+    _GAME_LOG_PATH = _format_template(_require("game_log_template"), player_name)
+    _INTERACTION_LOG_PATH = _format_template(
+        _require("interaction_log_template"), player_name
+    )
     _COMPLETIONS_LOG_PATH = _format_template(
         _require("completions_log_template"), player_name
     )
 
     _ensure_parent_dir(_SYSTEM_LOG_PATH)
-    _ensure_parent_dir(_PLAYER_LOG_PATH)
+    _ensure_parent_dir(_GAME_LOG_PATH)
+    _ensure_parent_dir(_INTERACTION_LOG_PATH)
     _ensure_parent_dir(_COMPLETIONS_LOG_PATH)
 
     _configure_logger(system_logger, _SYSTEM_LOG_PATH, log_level, text_format=True)
-    _configure_logger(player_logger, _PLAYER_LOG_PATH, logging.DEBUG)
+    _configure_logger(game_logger, _GAME_LOG_PATH, logging.DEBUG)
+    _configure_logger(interaction_logger, _INTERACTION_LOG_PATH, logging.DEBUG)
     _configure_logger(completions_logger, _COMPLETIONS_LOG_PATH, logging.DEBUG)
 
 
@@ -106,26 +113,20 @@ def system_debug(message: str) -> None:
         system_logger.debug(str(message))
 
 
-def game_log(message: str) -> None:
-    _player_log_json({"message": message})
-
-
-def game_log_json(data: dict, *, debug_only: bool = False) -> None:
-    if debug_only and not _debug_enabled:
-        return
-    _player_log_json(data)
+def game_log_json(data: dict) -> None:
+    _game_log_json(data)
 
 
 def log_player_input(command: str, *, pid: int | None = None) -> None:
     if not _debug_enabled:
         return
-    _player_log_json({"type": "input", "command": command, "pid": pid})
+    _interaction_log_json({"type": "input", "command": command, "pid": pid})
 
 
 def log_player_output(transcript: str, *, pid: int | None = None) -> None:
     if not _debug_enabled:
         return
-    _player_log_json({"type": "output", "transcript": transcript, "pid": pid})
+    _interaction_log_json({"type": "output", "transcript": transcript, "pid": pid})
 
 
 def log_completion_event(event: dict) -> None:
@@ -136,10 +137,16 @@ def log_completion_event(event: dict) -> None:
     completions_logger.info(json.dumps(event))
 
 
-def _player_log_json(data: dict) -> None:
+def _game_log_json(data: dict) -> None:
     entry = dict(data)
     entry["timestamp"] = _timestamp()
-    player_logger.info(json.dumps(entry))
+    game_logger.info(json.dumps(entry))
+
+
+def _interaction_log_json(data: dict) -> None:
+    entry = dict(data)
+    entry["timestamp"] = _timestamp()
+    interaction_logger.info(json.dumps(entry))
 
 
 def _timestamp() -> str:
