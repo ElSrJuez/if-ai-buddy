@@ -6,11 +6,12 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from openai import AsyncOpenAI
 
 from module import my_logging
+from module.response_models import NarrationPayload
 
 try:
     from foundry_local import FoundryLocalManager
@@ -52,6 +53,13 @@ class CompletionsHelper:
         self._foundry_client: AsyncOpenAI | None = None
         self._openai_api_key = None
         self._foundry_manager: Any | None = None
+        schema = NarrationPayload.model_json_schema(by_alias=True)
+        schema["additionalProperties"] = False
+        self._response_schema_payload = {
+            "name": "NarrationPayload",
+            "strict": True,
+            "schema": schema,
+        }
 
     def _render_system_prompt(self) -> str:
         schema_str = json.dumps(self.schema, indent=2)
@@ -71,27 +79,26 @@ class CompletionsHelper:
                 }
             )
         if self.provider == "foundry":
-            raw, usage = await self._call_foundry(messages)
+            payload, usage, raw_text = await self._call_foundry(messages)
         else:
-            raw, usage = await self._call_openai(messages)
+            payload, usage, raw_text = await self._call_openai(messages)
         latency = (time.perf_counter() - start) * 1000
         my_logging.log_completion_event(
             {
                 "event": "response",
                 "provider": self.provider,
                 "model": self.model,
-                "raw": raw,
+                "raw": raw_text,
                 "usage": usage,
                 "latency_ms": latency,
             }
         )
         my_logging.system_debug(
-            f"LLM raw response (provider={self.provider}, model={self.model}): {raw[:500]}"
+            f"LLM structured payload (provider={self.provider}, model={self.model}): {raw_text}"
         )
-        payload = self._ensure_json(raw)
         return CompletionResult(
             payload=payload,
-            raw_text=raw,
+            raw_text=raw_text,
             model=self.model or "unknown",
             provider=self.provider,
             latency_ms=latency,
@@ -107,7 +114,7 @@ class CompletionsHelper:
 
     async def _call_openai(
         self, messages: list[dict[str, str]]
-    ) -> tuple[str, dict[str, Any] | None]:
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
         if self._openai_api_key is None:
             self._openai_api_key = self._resolve_secret(
                 value_field="openai_api_key",
@@ -116,27 +123,13 @@ class CompletionsHelper:
             )
         client = self._openai_client or AsyncOpenAI(api_key=self._openai_api_key)
         self._openai_client = client
-        response = await client.chat.completions.create(  # type: ignore[arg-type]
-            model=self.model,
-            messages=messages,  # type: ignore[arg-type]
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-        )
-        content_parts = response.choices[0].message.content
-        if isinstance(content_parts, list):
-            raw_fragments = []
-            for part in content_parts:
-                if isinstance(part, dict):
-                    raw_fragments.append(str(part.get("text", "")))
-            raw_text = "".join(raw_fragments)
-        else:
-            raw_text = content_parts or ""
-        usage = self._serialize_usage(getattr(response, "usage", None))
-        return raw_text.strip(), usage
+        payload, usage = await self._invoke_structured_openai(client, self.model, messages)
+        raw_text = json.dumps(payload)
+        return payload, usage, raw_text
 
     async def _call_foundry(
         self, messages: list[dict[str, str]]
-    ) -> tuple[str, dict[str, Any] | None]:
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, str]:
         manager = await self._ensure_foundry_manager()
         base_url = getattr(manager, "endpoint", None)
         if not base_url:
@@ -150,30 +143,70 @@ class CompletionsHelper:
             messages=messages,  # type: ignore[arg-type]
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            response_format=cast(
+                Any,
+                {
+                    "type": "json_schema",
+                    "json_schema": self._response_schema_payload,
+                },
+            ),
         )
-        content_parts = response.choices[0].message.content
-        if isinstance(content_parts, list):
-            raw_fragments = []
-            for part in content_parts:
-                if isinstance(part, dict):
-                    raw_fragments.append(str(part.get("text", "")))
-            raw_text = "".join(raw_fragments)
-        else:
-            raw_text = content_parts or ""
         usage = self._serialize_usage(getattr(response, "usage", None))
-        return raw_text.strip(), usage
-
-    def _ensure_json(self, raw_text: str) -> dict[str, Any]:
-        raw_text = raw_text.strip()
-        if not raw_text:
-            raise CompletionError("LLM returned empty response")
+        if not response.choices:
+            raise CompletionError("LLM returned no choices")
+        raw_text = (response.choices[0].message.content or "").strip()
+        snippet = self._extract_first_json_object(raw_text)
+        if snippet is None:
+            raise CompletionError("LLM response did not include valid JSON payload")
         try:
-            return json.loads(raw_text)
-        except json.JSONDecodeError as exc:  # pragma: no cover - defensive
-            my_logging.system_debug(
-                f"LLM response could not be parsed as JSON. Raw payload: {raw_text}"
-            )
+            payload = json.loads(snippet)
+        except json.JSONDecodeError as exc:
             raise CompletionError("LLM response was not valid JSON") from exc
+        return payload, usage, snippet
+
+    async def _invoke_structured_openai(
+        self,
+        client: AsyncOpenAI,
+        model_name: str,
+        messages: list[dict[str, str]],
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        response = await client.chat.completions.parse(  # type: ignore[arg-type]
+            model=model_name,
+            messages=messages,  # type: ignore[arg-type]
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            response_format=NarrationPayload,
+        )
+        usage = self._serialize_usage(getattr(response, "usage", None))
+        if not response.choices:
+            raise CompletionError("LLM returned no choices")
+        message = response.choices[0].message
+        refusal = getattr(message, "refusal", None)
+        if refusal:
+            raise CompletionError(f"LLM refusal: {refusal}")
+        parsed = getattr(message, "parsed", None)
+        if parsed is None:
+            raise CompletionError("LLM response missing parsed content")
+        payload = parsed.model_dump(by_alias=True)
+        return payload, usage
+
+    @staticmethod
+    def _extract_first_json_object(text: str) -> str | None:
+        depth = 0
+        start = None
+        for idx, ch in enumerate(text):
+            if ch == "{" and start is None:
+                start = idx
+                depth = 1
+                continue
+            if start is not None:
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return text[start : idx + 1]
+        return None
 
     @staticmethod
     def _serialize_usage(usage: Any) -> dict[str, Any] | None:

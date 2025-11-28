@@ -2,3 +2,4 @@ openai
 foundry-local-sdk
 httpx
 textual
+pydantic
