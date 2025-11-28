@@ -5,59 +5,142 @@ import logging
 
 # init log file names
 _GAME_LOG_FILENAME = ""
-_SYSTEM_LOG_FILENAME = ""
+import json
+import logging
+import os
+from datetime import datetime
+from typing import Any
 
-# Module-level loggers for system and game logs
-game_logger = logging.getLogger('mygamelog')
-system_logger = logging.getLogger('mysystemlog')
+_config: dict[str, Any] = {}
+_SYSTEM_LOG_PATH = ""
+_PLAYER_LOG_PATH = ""
+_COMPLETIONS_LOG_PATH = ""
+_debug_enabled = False
 
-# Remove manual filename globals
+system_logger = logging.getLogger("mysystemlog")
+player_logger = logging.getLogger("myplayerlog")
+completions_logger = logging.getLogger("mycompletionslog")
+
 
 def init(player_name: str, config_file: str = "config.json") -> None:
-    """Initialize logging: loads config, ensures log directory, and configures log handlers."""
-    global _config, _GAME_LOG_FILENAME, _SYSTEM_LOG_FILENAME
-    # Load configuration
-    with open(config_file, 'r', encoding='utf-8') as f:
+    """Initialize logging: ensures config-driven paths and log levels."""
+    global _config, _SYSTEM_LOG_PATH, _PLAYER_LOG_PATH, _COMPLETIONS_LOG_PATH, _debug_enabled
+    with open(config_file, "r", encoding="utf-8") as f:
         _config = json.load(f)
-    # Determine log directory
-    log_dir = _config.get("input_jsonl_path", "")
-    if log_dir:
-        os.makedirs(log_dir, exist_ok=True)
-    # Setup log file paths
-    _GAME_LOG_FILENAME = os.path.join(log_dir, f"{player_name}.jsonl")
-    _SYSTEM_LOG_FILENAME = os.path.join(log_dir, f"{player_name}.log")
-    # Clear existing handlers
-    for handler in list(game_logger.handlers):
-        game_logger.removeHandler(handler)
-    for handler in list(system_logger.handlers):
-        system_logger.removeHandler(handler)
-    # Configure game logger (JSON lines)
-    game_logger.setLevel(logging.INFO)
-    gh = logging.FileHandler(_GAME_LOG_FILENAME, encoding='utf-8')
-    gh.setFormatter(logging.Formatter('%(message)s'))
-    game_logger.addHandler(gh)
-    game_logger.propagate = False
-    # Configure system logger (timestamped text)
-    system_logger.setLevel(logging.INFO)
-    sh = logging.FileHandler(_SYSTEM_LOG_FILENAME, encoding='utf-8')
-    sh.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
-    system_logger.addHandler(sh)
-    system_logger.propagate = False
 
-def game_log(message: str) -> None:
-    """Log a game message as JSON with timestamp."""
-    # Create JSON structure for message
-    data = {
-        "message": message,
-        "timestamp": datetime.utcnow().isoformat() + 'Z'
-    }
-    game_logger.info(json.dumps(data))
+    log_level = _resolve_log_level(_require("loglevel"))
+    _debug_enabled = log_level <= logging.DEBUG
+
+    _SYSTEM_LOG_PATH = _format_template(_require("system_log_template"), player_name)
+    _PLAYER_LOG_PATH = _format_template(_require("player_log_template"), player_name)
+    _COMPLETIONS_LOG_PATH = _format_template(
+        _require("completions_log_template"), player_name
+    )
+
+    _ensure_parent_dir(_SYSTEM_LOG_PATH)
+    _ensure_parent_dir(_PLAYER_LOG_PATH)
+    _ensure_parent_dir(_COMPLETIONS_LOG_PATH)
+
+    _configure_logger(system_logger, _SYSTEM_LOG_PATH, log_level, text_format=True)
+    _configure_logger(player_logger, _PLAYER_LOG_PATH, logging.DEBUG)
+    _configure_logger(completions_logger, _COMPLETIONS_LOG_PATH, logging.DEBUG)
+
+
+def _configure_logger(logger: logging.Logger, path: str, level: int, *, text_format: bool = False) -> None:
+    logger.handlers.clear()
+    logger.setLevel(level)
+    handler = logging.FileHandler(path, encoding="utf-8")
+    if text_format:
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    else:
+        handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.setLevel(level)
+    logger.addHandler(handler)
+    logger.propagate = False
+
+
+def _require(key: str) -> Any:
+    if key not in _config:
+        raise ValueError(f"Missing '{key}' in configuration file")
+    return _config[key]
+
+
+def _ensure_parent_dir(path: str) -> None:
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
+def _format_template(template: str, player_name: str) -> str:
+    return template.format(player=player_name)
+
+
+def _resolve_log_level(value: Any) -> int:
+    name = str(value).upper()
+    if not hasattr(logging, name):
+        raise ValueError(f"Invalid loglevel '{value}' in configuration")
+    level = getattr(logging, name)
+    if not isinstance(level, int):
+        raise ValueError(f"Invalid loglevel '{value}' in configuration")
+    return level
+
+
+def is_debug_enabled() -> bool:
+    return _debug_enabled
+
 
 def system_log(message: str) -> None:
-    """Log a system message with timestamp."""
+    system_logger.error(str(message))
+
+
+def system_warn(message: str) -> None:
+    system_logger.warning(str(message))
+
+
+def system_info(message: str) -> None:
     system_logger.info(str(message))
 
-def game_log_json(data: dict) -> None:
-    """Log a game message as JSON with timestamp."""
-    data["timestamp"] = datetime.utcnow().isoformat() + 'Z'
-    game_logger.info(json.dumps(data))
+
+def system_debug(message: str) -> None:
+    if _debug_enabled:
+        system_logger.debug(str(message))
+
+
+def game_log(message: str) -> None:
+    _player_log_json({"message": message})
+
+
+def game_log_json(data: dict, *, debug_only: bool = False) -> None:
+    if debug_only and not _debug_enabled:
+        return
+    _player_log_json(data)
+
+
+def log_player_input(command: str, *, pid: int | None = None) -> None:
+    if not _debug_enabled:
+        return
+    _player_log_json({"type": "input", "command": command, "pid": pid})
+
+
+def log_player_output(transcript: str, *, pid: int | None = None) -> None:
+    if not _debug_enabled:
+        return
+    _player_log_json({"type": "output", "transcript": transcript, "pid": pid})
+
+
+def log_completion_event(event: dict) -> None:
+    if not _debug_enabled:
+        return
+    event = dict(event)
+    event["timestamp"] = _timestamp()
+    completions_logger.info(json.dumps(event))
+
+
+def _player_log_json(data: dict) -> None:
+    entry = dict(data)
+    entry["timestamp"] = _timestamp()
+    player_logger.info(json.dumps(entry))
+
+
+def _timestamp() -> str:
+    return datetime.utcnow().isoformat() + "Z"

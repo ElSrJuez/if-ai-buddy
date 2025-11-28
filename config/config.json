@@ -1,10 +1,21 @@
 {
+  "loglevel": "DEBUG",
   "input_jsonl_path": "log\\",
   "system_prompt": "Role: friendly in-role narrator enhancing the player's text adventure default experience. **You are more complementary than creative.** Do NOT emit any prose outside JSON. No extra properties.\nFill all the required fields from the json in their respective order.\nRules: Do not invent unseen objects and avoid spoilers. Keep each field very short (≤ one sentence), non-duplicative and non-repetitive.\nOutput: STRICTLY a single JSON object that conforms to this schema: |{response_schema}|. ",
   "user_prompt_template": "Here are the game's last responses interleaved with the last gamer commands {game_log}",
-  "stream_only_narration": true, 
+  "stream_only_narration": true,
   "max_tokens": 1000,
   "llm_model_alias": "Phi-3.5-mini-instruct-cuda-gpu",
+  "llm_provider": "foundry",
+  "llm_temperature": 0.4,
+  "openai_api_key_env": "OPENAI_API_KEY",
+  "dfrotz_base_url": "http://phantompi4:8889",
+  "default_game": "zork1r119",
+  "session_label": "if-ai-buddy",
+  "player_name": "player",
+  "system_log_template": "log/{player}.log",
+  "player_log_template": "log/{player}.jsonl",
+  "completions_log_template": "log/{player}_completions.jsonl",
   "voice_settings": {
     "voice": "en_US-lessac-high"
   },
