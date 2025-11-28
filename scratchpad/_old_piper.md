@@ -136,6 +136,10 @@ TTS Data Flow
 
 
 
+
+
+
+
 This diagram illustrates the data flow during text-to-speech synthesis, from input text to output audio.
 
 Sources: 
