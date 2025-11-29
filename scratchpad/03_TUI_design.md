@@ -2,7 +2,7 @@
 
 ## Layout Goals
 - **Stage: Two-column, fixed left, tabbed right**: Dynamic TUI Textual framing, left column streams the vanilla transcript from the dFrotz engine; right column hosts AI companion commentary, guidance.
-- **Persistent footer strip**: Integrated horizontal band that combines player input with a compact status dashboard.
+- **Persistent Integrated Status/Command/Pallette Footer**: Integrated horizontal band that combines player input with a compact status dashboard.
 - **Clear top/bottom framing**: default `Header`/`Footer` widgets remain for title + key bindings, but the core experience lives between them.
 
 ## Main Stage
@@ -23,8 +23,8 @@ Additional UI notes:
 - Add subtle `Rule` between columns.
 - Allow right column to switch between “Narration” and the other tabs
 
-## Footer Strip (Input + Status)
-Single horizontal container split roughly 2:1:
+## Footer Strip (Input + Status + Palette)
+Single horizontal, partitioned container 
 1. **Command Input**
    - Textual `Input` widget, always focused after actions.
    - Placeholder text changes depending on mode (normal game input vs. game system input ).
