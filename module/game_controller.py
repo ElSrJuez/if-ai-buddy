@@ -26,8 +26,8 @@ from module.ui_helper import (
     AIStatus,
     EngineStatus,
     IFBuddyTUI,
+    IFBuddyApp,
     StatusSnapshot,
-    create_app,
 )
 
 
@@ -105,13 +105,16 @@ class GameController:
             player=self.settings.player_name, game=self.settings.default_game
         )
 
-        # Create TUI
-        self._app: IFBuddyTUI = create_app(
+        # Create TUI and underlying Textual App
+        self._app = IFBuddyTUI(
+            app=None,
             initial_status=self._status,
             on_command=self._handle_command,
             on_player_rename=self._handle_player_rename,
             on_restart=self._handle_restart,
         )
+        self._textual_app = IFBuddyApp(self._app)
+        self._app._app = self._textual_app
 
     # ------------------------------------------------------------------
     # Public API

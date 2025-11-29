@@ -371,33 +371,10 @@ class IFBuddyApp(App):
         self.exit()
 
 
-def create_app(
-    initial_status: StatusSnapshot,
-    on_command: Callable[[str], None],
-    on_player_rename: Callable[[], None],
-    on_restart: Callable[[], None],
-) -> IFBuddyTUI:
-    """Factory function to create and wire up the TUI."""
-    # Create the TUI wrapper
-    tui = IFBuddyTUI(
-        app=None,  # Will be set below
-        initial_status=initial_status,
-        on_command=on_command,
-        on_player_rename=on_player_rename,
-        on_restart=on_restart,
-    )
-
-    # Create the app and wire it to the TUI
-    app = IFBuddyApp(tui)
-    tui._app = app
-
-    return tui
-
-
 __all__ = [
     "AIStatus",
     "EngineStatus",
     "StatusSnapshot",
     "IFBuddyTUI",
-    "create_app",
+    "IFBuddyApp",
 ]
