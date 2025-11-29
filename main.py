@@ -1,22 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 from typing import Any
 
 from module import my_config, my_logging
-from module.completions_helper import CompletionsHelper
 from module.game_controller import GameController
 from module.rest_helper import DfrotzClient
-from module.tui_app import GameApp
+from module.ui_runner import run_ui
 
 CONFIG_PATH = Path("config/config.json")
-SCHEMA_PATH = Path("config/response_schema.json")
-
-
-def load_schema() -> dict:
-    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -48,25 +41,22 @@ def main() -> None:
     args = parser.parse_args()
 
     config = my_config.load_config(str(CONFIG_PATH))
-    schema = load_schema()
     player_name = args.player or str(require_config_field(config, "player_name"))
     base_url = args.base_url or str(require_config_field(config, "dfrotz_base_url"))
     game_name = args.game or str(require_config_field(config, "default_game"))
-    session_label = args.label or str(require_config_field(config, "session_label"))
-
-    my_logging.init(player_name, str(CONFIG_PATH))
+    session_label = args.label or player_name
 
     rest_client = DfrotzClient(base_url)
-    completions = CompletionsHelper(config, schema)
     controller = GameController(
+        config={**config, "player_name": player_name, "default_game": game_name},
         rest_client=rest_client,
-        completions=completions,
         game_name=game_name,
         session_label=session_label,
     )
 
-    app = GameApp(controller)
-    app.run()
+    my_logging.init(controller.player_name, str(CONFIG_PATH))
+
+    run_ui(controller)
 
 
 if __name__ == "__main__":

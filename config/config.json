@@ -11,12 +11,11 @@
   "openai_api_key_env": "OPENAI_API_KEY",
   "dfrotz_base_url": "http://phantompi4:8889",
   "default_game": "zork1r119",
-  "session_label": "if-ai-buddy",
-  "player_name": "player",
-  "system_log_template": "log/{player}.log",
-  "game_log_template": "log/{player}_game.jsonl",
-  "interaction_log_template": "log/{player}_interaction.jsonl",
-  "completions_log_template": "log/{player}_completions.jsonl",
+  "player_name": "Adventurer",
+  "system_log": "log/system.log",
+  "game_jsonl": "log/game.jsonl",
+  "game_engine_jsonl_filename_template": "log/{player}_game_engine.jsonl",
+  "llm_completion_jsonl_filename_template": "log/{player}_llm_completions.jsonl",
   "voice_settings": {
     "voice": "en_US-lessac-high"
   },

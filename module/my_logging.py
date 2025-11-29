@@ -1,10 +1,3 @@
-import os
-import json
-from datetime import datetime
-import logging
-
-# init log file names
-_GAME_LOG_FILENAME = ""
 import json
 import logging
 import os
@@ -14,42 +7,42 @@ from typing import Any
 _config: dict[str, Any] = {}
 _SYSTEM_LOG_PATH = ""
 _GAME_LOG_PATH = ""
-_INTERACTION_LOG_PATH = ""
+_ENGINE_LOG_PATH = ""
 _COMPLETIONS_LOG_PATH = ""
 _debug_enabled = False
 
 system_logger = logging.getLogger("mysystemlog")
 game_logger = logging.getLogger("mygamelog")
-interaction_logger = logging.getLogger("myinteractionlog")
+engine_logger = logging.getLogger("myenginelog")
 completions_logger = logging.getLogger("mycompletionslog")
 
 
 def init(player_name: str, config_file: str = "config.json") -> None:
     """Initialize logging: ensures config-driven paths and log levels."""
-    global _config, _SYSTEM_LOG_PATH, _GAME_LOG_PATH, _INTERACTION_LOG_PATH, _COMPLETIONS_LOG_PATH, _debug_enabled
+    global _config, _SYSTEM_LOG_PATH, _GAME_LOG_PATH, _ENGINE_LOG_PATH, _COMPLETIONS_LOG_PATH, _debug_enabled
     with open(config_file, "r", encoding="utf-8") as f:
         _config = json.load(f)
 
     log_level = _resolve_log_level(_require("loglevel"))
     _debug_enabled = log_level <= logging.DEBUG
 
-    _SYSTEM_LOG_PATH = _format_template(_require("system_log_template"), player_name)
-    _GAME_LOG_PATH = _format_template(_require("game_log_template"), player_name)
-    _INTERACTION_LOG_PATH = _format_template(
-        _require("interaction_log_template"), player_name
+    _SYSTEM_LOG_PATH = str(_require("system_log"))
+    _GAME_LOG_PATH = str(_require("game_jsonl"))
+    _ENGINE_LOG_PATH = _format_template(
+        _require("game_engine_jsonl_filename_template"), player_name
     )
     _COMPLETIONS_LOG_PATH = _format_template(
-        _require("completions_log_template"), player_name
+        _require("llm_completion_jsonl_filename_template"), player_name
     )
 
     _ensure_parent_dir(_SYSTEM_LOG_PATH)
     _ensure_parent_dir(_GAME_LOG_PATH)
-    _ensure_parent_dir(_INTERACTION_LOG_PATH)
+    _ensure_parent_dir(_ENGINE_LOG_PATH)
     _ensure_parent_dir(_COMPLETIONS_LOG_PATH)
 
     _configure_logger(system_logger, _SYSTEM_LOG_PATH, log_level, text_format=True)
     _configure_logger(game_logger, _GAME_LOG_PATH, logging.DEBUG)
-    _configure_logger(interaction_logger, _INTERACTION_LOG_PATH, logging.DEBUG)
+    _configure_logger(engine_logger, _ENGINE_LOG_PATH, logging.DEBUG)
     _configure_logger(completions_logger, _COMPLETIONS_LOG_PATH, logging.DEBUG)
 
 
@@ -120,13 +113,13 @@ def game_log_json(data: dict) -> None:
 def log_player_input(command: str, *, pid: int | None = None) -> None:
     if not _debug_enabled:
         return
-    _interaction_log_json({"type": "input", "command": command, "pid": pid})
+    _engine_log_json({"type": "input", "command": command, "pid": pid})
 
 
 def log_player_output(transcript: str, *, pid: int | None = None) -> None:
     if not _debug_enabled:
         return
-    _interaction_log_json({"type": "output", "transcript": transcript, "pid": pid})
+    _engine_log_json({"type": "output", "transcript": transcript, "pid": pid})
 
 
 def log_completion_event(event: dict) -> None:
@@ -143,10 +136,10 @@ def _game_log_json(data: dict) -> None:
     game_logger.info(json.dumps(entry))
 
 
-def _interaction_log_json(data: dict) -> None:
+def _engine_log_json(data: dict) -> None:
     entry = dict(data)
     entry["timestamp"] = _timestamp()
-    interaction_logger.info(json.dumps(entry))
+    engine_logger.info(json.dumps(entry))
 
 
 def _timestamp() -> str:
