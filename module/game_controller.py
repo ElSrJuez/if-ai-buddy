@@ -122,7 +122,7 @@ class GameController:
         self._queue_bootstrap_messages()
         my_logging.system_info("IF AI Buddy TUI starting")
         try:
-            self._app.run()
+            self._app.app.run()
         finally:
             self._cleanup()
         my_logging.system_info("IF AI Buddy TUI exited")
@@ -152,17 +152,17 @@ class GameController:
                 "Connecting to the game world..."
             )
             # Initialize session
-            self._app.call_later(self._initialize_session)
+            self._app.app.call_later(self._initialize_session)
 
         try:
-            self._app.call_later(_render_intro)
+            self._app.app.call_later(_render_intro)
         except AttributeError:
             _render_intro()
 
     def _initialize_session(self) -> None:
         """Schedule async session initialization."""
         try:
-            self._app.run_worker_async(self._async_init_session())
+            self._app.app.call_later(lambda: asyncio.create_task(self._async_init_session()))
         except Exception as exc:
             my_logging.system_debug(f"Session init error: {exc}")
             self._app.add_transcript_output(f"Error initializing: {exc}")
@@ -205,7 +205,7 @@ class GameController:
         """Handle a player command."""
         my_logging.log_player_input(command)
         self._set_engine_status(EngineStatus.BUSY)
-        self._app.call_later(lambda: self._app.run_worker_async(self._async_play_turn(command)))
+        self._app.app.call_later(lambda: asyncio.create_task(self._async_play_turn(command)))
 
     async def _async_play_turn(self, command: str) -> None:
         """Async execution of a turn: send command, get response, generate narration."""
@@ -268,9 +268,6 @@ class GameController:
             self._set_engine_status(EngineStatus.ERROR)
             self._set_ai_status(AIStatus.ERROR)
 
-    def _play_turn(self, command: str) -> None:
-        """(Deprecated) Sync wrapper for _async_play_turn."""
-        pass
 
     def _handle_player_rename(self) -> None:
         """Handle player rename request."""

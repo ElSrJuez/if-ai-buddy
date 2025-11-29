@@ -288,17 +288,14 @@ class IFBuddyTUI:
 
     # AI status updates delegated to controller; remove duplication
 
-    def run(self) -> None:
-        """Run the Textual app."""
-        self._app.run()
+    # Async helpers (`call_later`, `run_worker_async`) and direct `run()` wrapper were removed
+    # to keep IFBuddyTUI as a pure widget aggregator. The controller should interact with the
+    # underlying Textual `App` via `tui.app` if it needs scheduling.
 
-    def call_later(self, callback: Callable[[], None]) -> None:
-        """Schedule a callback to run on the next event loop iteration."""
-        self._app.call_later(callback)
-
-    def run_worker_async(self, coro):
-        """Schedule an async coroutine to run on the Textual event loop."""
-        return self._app.call_later(lambda: asyncio.create_task(coro))
+    @property
+    def app(self):
+        """Expose the underlying Textual App for the controller."""
+        return self._app
 
 
 class IFBuddyApp(App):
