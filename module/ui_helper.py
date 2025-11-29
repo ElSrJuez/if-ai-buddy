@@ -19,6 +19,8 @@ from textual.widgets import (
 )
 from textual.reactive import reactive
 
+import sys
+sys.excepthook = sys.__excepthook__
 
 class AIStatus(Enum):
     """AI companion status."""
