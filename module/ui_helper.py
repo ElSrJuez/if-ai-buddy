@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
 
+from module import my_config
+
 from rich.console import RenderableType
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
@@ -137,6 +139,11 @@ class NarrationPanel(Static):
         self._narration_log.clear()
 
 
+# Config-driven defaults
+DEFAULT_PLAYER = my_config.get_config_value("player_name", "Adventurer")
+DEFAULT_GAME = my_config.get_config_value("default_game", "Unknown")
+DEFAULT_PLACEHOLDER = my_config.get_config_value("command_input_placeholder", "Enter command...")
+
 class StatusBar(Static):
     """Footer status bar showing player, game, room, moves, score, and status."""
 
@@ -150,7 +157,7 @@ class StatusBar(Static):
     """
 
     status: reactive[StatusSnapshot] = reactive(
-        StatusSnapshot.default("Adventurer", "Unknown")
+        StatusSnapshot.default(DEFAULT_PLAYER, DEFAULT_GAME)
     )
 
     def __init__(self) -> None:
@@ -214,7 +221,7 @@ class CommandInput(Static):
         self._input: Input | None = None
 
     def compose(self) -> ComposeResult:
-        self._input = Input(id="command_input", placeholder="Enter command...")
+        self._input = Input(id="command_input", placeholder=DEFAULT_PLACEHOLDER)
         yield self._input
 
     def on_mount(self) -> None:
