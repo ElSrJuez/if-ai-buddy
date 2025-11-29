@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
 
-from module import my_config
+from module import my_config, my_logging
 
 from rich.console import RenderableType
 from textual.app import App, ComposeResult
@@ -106,6 +106,7 @@ class TranscriptLog(Static):
     def reset(self) -> None:
         """Clear all transcript content."""
         self._log.clear()
+        my_logging.system_debug("Transcript log cleared")
 
 
 class NarrationPanel(Static):
@@ -137,12 +138,18 @@ class NarrationPanel(Static):
     def reset(self) -> None:
         """Clear all narration content."""
         self._narration_log.clear()
+        my_logging.system_debug("Narration panel cleared")
 
 
 # Config-driven defaults
 DEFAULT_PLAYER = my_config.get_config_value("player_name", "Adventurer")
 DEFAULT_GAME = my_config.get_config_value("default_game", "Unknown")
 DEFAULT_PLACEHOLDER = my_config.get_config_value("command_input_placeholder", "Enter command...")
+
+# Log resolved defaults
+my_logging.system_info(
+    f"UI defaults resolved player={DEFAULT_PLAYER}, game={DEFAULT_GAME}, placeholder='{DEFAULT_PLACEHOLDER}'"
+)
 
 class StatusBar(Static):
     """Footer status bar showing player, game, room, moves, score, and status."""
@@ -180,6 +187,7 @@ class StatusBar(Static):
 
     def _status_color(self, status: EngineStatus | AIStatus) -> str:
         """Return color code for a status enum."""
+        my_logging.system_debug(f"Status color chosen for {status}: calculating")
         if isinstance(status, EngineStatus):
             if status == EngineStatus.ERROR:
                 return "red"
@@ -202,6 +210,9 @@ class StatusBar(Static):
     def update_status(self, snapshot: StatusSnapshot) -> None:
         """Update the status snapshot and trigger re-render."""
         self.status = snapshot
+        my_logging.system_info(
+            f"Status updated: player={snapshot.player}, room={snapshot.room}, moves={snapshot.moves}, score={snapshot.score}, engine={snapshot.engine_status.name}, ai={snapshot.ai_status.name}"
+        )
 
 
 class CommandInput(Static):
@@ -228,6 +239,7 @@ class CommandInput(Static):
         """Focus the input field on mount."""
         if self._input:
             self._input.focus()
+            my_logging.system_debug("Command input focused")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command submission."""
@@ -372,6 +384,11 @@ class IFBuddyApp(App):
         yield cmd_input
 
         yield Footer()
+
+    async def on_mount(self) -> None:
+        """Log widget tree once mounted."""
+        widget_ids = [w.id for w in self.query("*") if getattr(w, "id", None)]
+        my_logging.system_debug(f"Widget tree IDs: {widget_ids}")
 
     async def action_quit(self) -> None:
         """Quit the app."""
