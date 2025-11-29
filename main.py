@@ -1,6 +1,7 @@
 """Bootstrap script for IF AI Buddy.
 
 Loads configuration, initializes logging, and hands control to the game controller.
+Follows configuration-driven, fail-fast principles per coding guidelines.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from pathlib import Path
 
 from module import my_config, my_logging
 from module.game_controller import GameController
+from module.llm_factory import create_llm_client
 
 
 def _default_config_path() -> Path:
@@ -28,23 +30,69 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _validate_config(config: dict) -> None:
+    """Validate that all required config keys are present and valid."""
+    required_keys = [
+        "player_name",
+        "default_game",
+        "dfrotz_base_url",
+        "system_log",
+        "game_jsonl",
+        "game_engine_jsonl_filename_template",
+        "llm_completion_jsonl_filename_template",
+        "loglevel",
+        "llm_provider",
+        "system_prompt",
+        "user_prompt_template",
+    ]
+    
+    missing = [k for k in required_keys if k not in config]
+    if missing:
+        raise ValueError(f"Missing required config keys: {', '.join(missing)}")
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     config_path = args.config
+    
+    # Validate config file exists
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
+    # Load config (fail fast if invalid)
     config = my_config.load_config(str(config_path))
-    player_name = config.get("player_name", "Adventurer")
-    my_logging.init(player_name=player_name, config_file=str(config_path))
+    _validate_config(config)
 
-    controller = GameController(config)
-    controller.run()
+    # Extract player name for logging setup
+    player_name = config.get("player_name", "Adventurer")
+
+    # Initialize logging (fail fast if config is invalid)
+    try:
+        my_logging.init(player_name=player_name, config_file=str(config_path))
+    except Exception as exc:
+        print(f"Failed to initialize logging: {exc}", file=sys.stderr)
+        raise
+
+    # Log startup
+    my_logging.system_info("IF AI Buddy starting")
+    my_logging.system_info(f"Config loaded from {config_path}")
+
+    try:
+        # Create LLM client (fail fast if config is invalid)
+        llm_client = create_llm_client(config)
+        my_logging.system_debug(f"LLM client created for provider: {config.get('llm_provider', 'foundry')}")
+        
+        # Create and run controller
+        controller = GameController(config, llm_client)
+        controller.run()
+    except Exception as exc:
+        my_logging.system_log(f"Fatal error: {exc}")
+        raise
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as exc:  # noqa: BLE001 - we want a loud failure per principles
+    except Exception as exc:
         print(f"Fatal error: {exc}", file=sys.stderr)
-        raise
+        sys.exit(1)

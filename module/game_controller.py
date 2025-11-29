@@ -1,17 +1,27 @@
 """Thin game controller that wires configuration, logging, and the TUI.
 
-The controller currently simulates turn responses until the REST helper and AI
-buddy layers are reconnected. Keeping this file focused on orchestration makes it
-simple to evolve toward the full design incrementally without entangling UI code
-or API specifics.
+The controller orchestrates:
+  - REST client + GameAPI for dfrotz interaction
+  - GameMemoryStore for episodic and state tracking
+  - CompletionsHelper for AI narration
+  - IFBuddyTUI for Textual UI integration
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from module import my_logging
+from module.ai_buddy_memory import GameMemoryStore
+from module.completions_helper import CompletionsHelper
+from module.game_api import GameAPI
+from module.rest_helper import DfrotzClient
 from module.ui_helper import (
     AIStatus,
     EngineStatus,
@@ -26,6 +36,7 @@ class ControllerSettings:
     player_name: str
     default_game: str
     dfrotz_base_url: str
+    response_schema_path: str
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "ControllerSettings":
@@ -36,22 +47,62 @@ class ControllerSettings:
         ]
         if missing:
             raise ValueError(f"Missing config keys: {', '.join(missing)}")
+
+        # Load response schema
+        schema_path = config.get("response_schema_path", "config/response_schema.json")
+
         return cls(
             player_name=str(config["player_name"] or "Adventurer"),
             default_game=str(config["default_game"] or ""),
             dfrotz_base_url=str(config["dfrotz_base_url"]),
+            response_schema_path=schema_path,
         )
 
 
 class GameController:
     """Owns session state and mediates between the TUI and game helpers."""
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], llm_client: Any) -> None:
+        self.config = config
         self.settings = ControllerSettings.from_config(config)
+        self._llm_client = llm_client
+
+        # Initialize async helpers
+        self._rest_client: DfrotzClient | None = None
+        self._game_api: GameAPI | None = None
+
+        # Initialize memory
+        self._memory = GameMemoryStore(self.settings.player_name)
+
+        # Initialize completions helper with injected LLM client
+        schema_path = Path(self.settings.response_schema_path)
+        if not schema_path.is_absolute():
+            schema_path = Path(__file__).parent.parent / schema_path
+        
+        try:
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            my_logging.system_warn(f"Response schema not found at {schema_path}, using minimal schema")
+            schema = {
+                "type": "object",
+                "properties": {
+                    "narration": {"type": "string"},
+                    "game_intent": {"type": "string"},
+                    "game_meta_intent": {"type": "string"},
+                    "hidden_next_command": {"type": "string"},
+                    "hidden_next_command_confidence": {"type": "integer"},
+                },
+                "required": ["narration"],
+            }
+
+        self._completions = CompletionsHelper(self.config, schema, self._llm_client)
+
+        # Status tracking
         self._moves = 0
         self._score = 0
         self._room = "Unknown"
 
+        # Create TUI
         status = StatusSnapshot.default(
             player=self.settings.player_name, game=self.settings.default_game
         )
@@ -70,64 +121,200 @@ class GameController:
         """Run the Textual app."""
         self._queue_bootstrap_messages()
         my_logging.system_info("IF AI Buddy TUI starting")
-        self._app.run()
+        try:
+            self._app.run()
+        finally:
+            self._cleanup()
         my_logging.system_info("IF AI Buddy TUI exited")
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _cleanup(self) -> None:
+        """Clean up resources."""
+        if self._game_api:
+            # Run async cleanup in sync context (blocking)
+            try:
+                asyncio.run(self._game_api.stop())
+                asyncio.run(self._game_api.close())
+            except Exception as exc:
+                my_logging.system_debug(f"Cleanup error: {exc}")
+
     def _queue_bootstrap_messages(self) -> None:
+        """Queue initial intro messages."""
         def _render_intro() -> None:
             self._app.add_transcript_output(
-                "Welcome! REST + AI helpers are still coming online, so you will see "
-                "simulated responses for now."
+                "Welcome to IF AI Buddy!\n\n"
+                "Initializing game engine..."
             )
             self._app.add_narration(
-                "Your buddy is awake and ready to narrate once the engine wiring is complete."
+                "Connecting to the game world..."
             )
+            # Initialize session
+            self._app.call_later(self._initialize_session)
 
         try:
             self._app.call_later(_render_intro)
         except AttributeError:
             _render_intro()
 
+    def _initialize_session(self) -> None:
+        """Initialize the game session."""
+        try:
+            async def _async_init() -> None:
+                self._rest_client = DfrotzClient(self.settings.dfrotz_base_url)
+                self._game_api = GameAPI(
+                    self._rest_client,
+                    game_name=self.settings.default_game,
+                    label=self.settings.player_name,
+                )
+                session = await self._game_api.start()
+                
+                # Add intro text to transcript
+                if session.intro_text:
+                    self._app.add_transcript_output(session.intro_text)
+                
+                # Extract initial state
+                self._memory.add_turn("", session.intro_text)
+                self._memory.extract_and_promote_state(session.intro_text)
+                
+                # Extract room
+                self._room = self._extract_room(session.intro_text)
+                self._app.update_status(room=self._room)
+                
+                # Add narration
+                self._app.add_narration("Let's begin your adventure...")
+                
+                self._set_engine_status(EngineStatus.READY)
+                self._set_ai_status(AIStatus.IDLE)
+
+            asyncio.run(_async_init())
+
+        except Exception as exc:
+            my_logging.system_debug(f"Session init error: {exc}")
+            self._app.add_transcript_output(f"Error initializing: {exc}")
+            self._set_engine_status(EngineStatus.ERROR)
+
     def _handle_command(self, command: str) -> None:
+        """Handle a player command."""
         my_logging.log_player_input(command)
         self._set_engine_status(EngineStatus.BUSY)
-        self._app.call_later(lambda: self._complete_fake_turn(command))
+        self._app.call_later(lambda: self._play_turn(command))
 
-    def _complete_fake_turn(self, command: str) -> None:
-        self._moves += 1
-        self._app.add_transcript_output(
-            f"(demo) The engine echoes: '{command}'. Real dfrotz plumbing arrives shortly."
-        )
-        self._app.add_narration(
-            "For now, treat this as a smoke test of the UI. Actual narration will stream once the AI helper is wired."
-        )
-        self._app.update_status(moves=self._moves)
-        self._set_engine_status(EngineStatus.READY)
-        self._set_ai_status(AIStatus.READY)
+    def _play_turn(self, command: str) -> None:
+        """Execute a turn: send command, get response, generate narration."""
+        try:
+            async def _async_turn() -> None:
+                # Send action to game
+                outcome = await self._game_api.send(command)
+                transcript = outcome.transcript
+                
+                # Log transcript
+                my_logging.log_player_output(transcript)
+                
+                # Add to transcript
+                self._app.add_transcript_output(transcript)
+                
+                # Update memory
+                self._memory.add_turn(command, transcript)
+                self._memory.extract_and_promote_state(transcript)
+                
+                # Parse score/moves
+                moves, score = self._parse_game_metrics(transcript)
+                if moves is not None:
+                    self._moves = moves
+                if score is not None:
+                    self._score = score
+                
+                # Extract room
+                room = self._extract_room(transcript)
+                if room:
+                    self._room = room
+                
+                # Update status
+                self._app.update_status(
+                    moves=self._moves,
+                    score=self._score,
+                    room=self._room,
+                )
+                
+                # Generate narration
+                self._set_ai_status(AIStatus.WORKING)
+                try:
+                    context = self._memory.get_context_for_prompt()
+                    result = self._completions.run(transcript, context)
+                    
+                    payload = result.get("payload", {})
+                    if isinstance(payload, dict):
+                        narration = payload.get("narration", "...")
+                        self._app.add_narration(narration)
+                    
+                    self._set_ai_status(AIStatus.READY)
+                except Exception as narr_exc:
+                    my_logging.system_debug(f"Narration error: {narr_exc}")
+                    self._app.add_narration(f"(Narration unavailable)")
+                    self._set_ai_status(AIStatus.ERROR)
+                
+                self._set_engine_status(EngineStatus.READY)
+
+            asyncio.run(_async_turn())
+
+        except Exception as exc:
+            my_logging.system_debug(f"Turn error: {exc}")
+            self._app.add_transcript_output(f"Error: {exc}")
+            self._set_engine_status(EngineStatus.ERROR)
+            self._set_ai_status(AIStatus.ERROR)
 
     def _handle_player_rename(self) -> None:
-        my_logging.system_info("Player rename requested (stub)")
+        """Handle player rename request."""
+        my_logging.system_info("Player rename requested (not yet implemented)")
         self._app.add_hint(
-            "Player rename flow will prompt inside the TUI in a later iteration."
+            "Player rename will be available in a future iteration."
         )
 
     def _handle_restart(self) -> None:
+        """Handle game restart request."""
         my_logging.system_info("Game restart requested")
         self._moves = 0
         self._score = 0
+        self._room = "Unknown"
+        self._memory.reset()
         self._app.reset_transcript()
         self._app.reset_narration()
         self._app.update_status(moves=0, score=0, room="Unknown")
+        self._initialize_session()
 
     def _set_engine_status(self, status: EngineStatus) -> None:
+        """Set engine status in UI."""
         self._app.set_engine_status(status)
 
     def _set_ai_status(self, status: AIStatus) -> None:
+        """Set AI status in UI."""
         self._app.set_ai_status(status)
+
+    def _parse_game_metrics(self, transcript: str) -> tuple[int | None, int | None]:
+        """Extract moves and score from transcript."""
+        moves = None
+        score = None
+        
+        # Pattern: "Score: 100 Moves: 42" or "Score: 100\nMoves: 42"
+        match = re.search(r"Score:\s*(\d+).*?Moves:\s*(\d+)", transcript, re.DOTALL)
+        if match:
+            score = int(match.group(1))
+            moves = int(match.group(2))
+        
+        return moves, score
+
+    def _extract_room(self, transcript: str) -> str | None:
+        """Extract room name from transcript."""
+        for line in transcript.split("\n"):
+            line = line.strip()
+            if line and len(line) > 2 and line[0].isupper():
+                # Heuristic: room names are capitalized
+                if line.isupper() or (line[0].isupper() and " " in line):
+                    return line
+        return None
 
 
 __all__ = ["GameController"]

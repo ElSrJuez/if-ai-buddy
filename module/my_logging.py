@@ -144,3 +144,30 @@ def _engine_log_json(data: dict) -> None:
 
 def _timestamp() -> str:
     return datetime.utcnow().isoformat() + "Z"
+
+
+# ------ Memory-scoped logging helpers ------
+
+def log_memory_event(event_type: str, data: dict) -> None:
+    """Log a memory-related event (episodic turn, state update, etc.) to game JSONL."""
+    entry = dict(data)
+    entry["type"] = event_type
+    _game_log_json(entry)
+
+
+def log_memory_conflict(description: str, evidence: str) -> None:
+    """Log a memory conflict (contradiction between state and game output)."""
+    system_warn(f"Memory conflict: {description} (evidence: {evidence})")
+    log_memory_event("conflict", {
+        "description": description,
+        "evidence": evidence,
+    })
+
+
+def log_state_change(field: str, old_value: Any, new_value: Any) -> None:
+    """Log a state field change."""
+    log_memory_event("state_change", {
+        "field": field,
+        "old_value": str(old_value)[:100],
+        "new_value": str(new_value)[:100],
+    })
