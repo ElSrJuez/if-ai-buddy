@@ -1,3 +1,4 @@
+# previous, failed implementation of game TUI
 """Rich/Textual TUI for IF AI Buddy."""
 from __future__ import annotations
 
