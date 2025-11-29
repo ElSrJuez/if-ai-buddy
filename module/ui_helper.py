@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
@@ -309,6 +310,10 @@ class IFBuddyTUI:
     def call_later(self, callback: Callable[[], None]) -> None:
         """Schedule a callback to run on the next event loop iteration."""
         self._app.call_later(callback)
+
+    def run_worker_async(self, coro):
+        """Schedule an async coroutine to run on the Textual event loop."""
+        return self._app.call_later(lambda: asyncio.create_task(coro))
 
 
 class IFBuddyApp(App):

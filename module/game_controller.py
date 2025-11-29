@@ -133,11 +133,11 @@ class GameController:
 
     def _cleanup(self) -> None:
         """Clean up resources."""
+        # Async cleanup is handled by game_api context managers
+        # No need for asyncio.run() here since the event loop is already shutting down
         if self._game_api:
-            # Run async cleanup in sync context (blocking)
             try:
-                asyncio.run(self._game_api.stop())
-                asyncio.run(self._game_api.close())
+                my_logging.system_debug("Game API cleanup skipped (async)")
             except Exception as exc:
                 my_logging.system_debug(f"Cleanup error: {exc}")
 
@@ -160,39 +160,44 @@ class GameController:
             _render_intro()
 
     def _initialize_session(self) -> None:
-        """Initialize the game session."""
+        """Schedule async session initialization."""
         try:
-            async def _async_init() -> None:
-                self._rest_client = DfrotzClient(self.settings.dfrotz_base_url)
-                self._game_api = GameAPI(
-                    self._rest_client,
-                    game_name=self.settings.default_game,
-                    label=self.settings.player_name,
-                )
-                session = await self._game_api.start()
-                
-                # Add intro text to transcript
-                if session.intro_text:
-                    self._app.add_transcript_output(session.intro_text)
-                
-                # Extract initial state
-                self._memory.add_turn("", session.intro_text)
-                self._memory.extract_and_promote_state(session.intro_text)
-                
-                # Extract room
-                self._room = self._extract_room(session.intro_text)
-                self._app.update_status(room=self._room)
-                
-                # Add narration
-                self._app.add_narration("Let's begin your adventure...")
-                
-                self._set_engine_status(EngineStatus.READY)
-                self._set_ai_status(AIStatus.IDLE)
-
-            asyncio.run(_async_init())
-
+            self._app.run_worker_async(self._async_init_session())
         except Exception as exc:
             my_logging.system_debug(f"Session init error: {exc}")
+            self._app.add_transcript_output(f"Error initializing: {exc}")
+            self._set_engine_status(EngineStatus.ERROR)
+
+    async def _async_init_session(self) -> None:
+        """Async initialization of game session."""
+        try:
+            self._rest_client = DfrotzClient(self.settings.dfrotz_base_url)
+            self._game_api = GameAPI(
+                self._rest_client,
+                game_name=self.settings.default_game,
+                label=self.settings.player_name,
+            )
+            session = await self._game_api.start()
+            
+            # Add intro text to transcript
+            if session.intro_text:
+                self._app.add_transcript_output(session.intro_text)
+            
+            # Extract initial state
+            self._memory.add_turn("", session.intro_text)
+            self._memory.extract_and_promote_state(session.intro_text)
+            
+            # Extract room
+            self._room = self._extract_room(session.intro_text)
+            self._app.update_status(room=self._room)
+            
+            # Add narration
+            self._app.add_narration("Let's begin your adventure...")
+            
+            self._set_engine_status(EngineStatus.READY)
+            self._set_ai_status(AIStatus.IDLE)
+        except Exception as exc:
+            my_logging.system_debug(f"Async init error: {exc}")
             self._app.add_transcript_output(f"Error initializing: {exc}")
             self._set_engine_status(EngineStatus.ERROR)
 
@@ -200,71 +205,72 @@ class GameController:
         """Handle a player command."""
         my_logging.log_player_input(command)
         self._set_engine_status(EngineStatus.BUSY)
-        self._app.call_later(lambda: self._play_turn(command))
+        self._app.call_later(lambda: self._app.run_worker_async(self._async_play_turn(command)))
 
-    def _play_turn(self, command: str) -> None:
-        """Execute a turn: send command, get response, generate narration."""
+    async def _async_play_turn(self, command: str) -> None:
+        """Async execution of a turn: send command, get response, generate narration."""
         try:
-            async def _async_turn() -> None:
-                # Send action to game
-                outcome = await self._game_api.send(command)
-                transcript = outcome.transcript
+            # Send action to game
+            outcome = await self._game_api.send(command)
+            transcript = outcome.transcript
+            
+            # Log transcript
+            my_logging.log_player_output(transcript)
+            
+            # Add to transcript
+            self._app.add_transcript_output(transcript)
+            
+            # Update memory
+            self._memory.add_turn(command, transcript)
+            self._memory.extract_and_promote_state(transcript)
+            
+            # Parse score/moves
+            moves, score = self._parse_game_metrics(transcript)
+            if moves is not None:
+                self._moves = moves
+            if score is not None:
+                self._score = score
+            
+            # Extract room
+            room = self._extract_room(transcript)
+            if room:
+                self._room = room
+            
+            # Update status
+            self._app.update_status(
+                moves=self._moves,
+                score=self._score,
+                room=self._room,
+            )
+            
+            # Generate narration
+            self._set_ai_status(AIStatus.WORKING)
+            try:
+                context = self._memory.get_context_for_prompt()
+                result = self._completions.run(transcript, context)
                 
-                # Log transcript
-                my_logging.log_player_output(transcript)
+                payload = result.get("payload", {})
+                if isinstance(payload, dict):
+                    narration = payload.get("narration", "...")
+                    self._app.add_narration(narration)
                 
-                # Add to transcript
-                self._app.add_transcript_output(transcript)
-                
-                # Update memory
-                self._memory.add_turn(command, transcript)
-                self._memory.extract_and_promote_state(transcript)
-                
-                # Parse score/moves
-                moves, score = self._parse_game_metrics(transcript)
-                if moves is not None:
-                    self._moves = moves
-                if score is not None:
-                    self._score = score
-                
-                # Extract room
-                room = self._extract_room(transcript)
-                if room:
-                    self._room = room
-                
-                # Update status
-                self._app.update_status(
-                    moves=self._moves,
-                    score=self._score,
-                    room=self._room,
-                )
-                
-                # Generate narration
-                self._set_ai_status(AIStatus.WORKING)
-                try:
-                    context = self._memory.get_context_for_prompt()
-                    result = self._completions.run(transcript, context)
-                    
-                    payload = result.get("payload", {})
-                    if isinstance(payload, dict):
-                        narration = payload.get("narration", "...")
-                        self._app.add_narration(narration)
-                    
-                    self._set_ai_status(AIStatus.READY)
-                except Exception as narr_exc:
-                    my_logging.system_debug(f"Narration error: {narr_exc}")
-                    self._app.add_narration(f"(Narration unavailable)")
-                    self._set_ai_status(AIStatus.ERROR)
-                
-                self._set_engine_status(EngineStatus.READY)
-
-            asyncio.run(_async_turn())
+                self._set_ai_status(AIStatus.READY)
+            except Exception as narr_exc:
+                my_logging.system_debug(f"Narration error: {narr_exc}")
+                self._app.add_narration(f"(Narration unavailable)")
+                self._set_ai_status(AIStatus.ERROR)
+            
+            self._set_engine_status(EngineStatus.READY)
 
         except Exception as exc:
             my_logging.system_debug(f"Turn error: {exc}")
             self._app.add_transcript_output(f"Error: {exc}")
             self._set_engine_status(EngineStatus.ERROR)
             self._set_ai_status(AIStatus.ERROR)
+
+    def _play_turn(self, command: str) -> None:
+        """(Deprecated) Sync wrapper for _async_play_turn."""
+        pass
 
     def _handle_player_rename(self) -> None:
         """Handle player rename request."""
