@@ -19,6 +19,7 @@ from textual.widgets import (
 )
 from textual.reactive import reactive
 
+# This is essential to disable rich's spammy error handler. This is necessary to host here, because this undesired behavior is triggered by the textual imports.
 import sys
 sys.excepthook = sys.__excepthook__
 
@@ -242,7 +243,7 @@ class IFBuddyTUI:
         on_restart: Callable[[], None],
     ) -> None:
         self._app = app
-        self._status = initial_status
+        # status snapshot initialization and updates are delegated to the controller
         self._on_command = on_command
         self._on_player_rename = on_player_rename
         self._on_restart = on_restart
@@ -278,32 +279,14 @@ class IFBuddyTUI:
         if self.narration_panel:
             self.narration_panel.reset()
 
-    def update_status(
-        self,
-        player: str | None = None,
-        game: str | None = None,
-        room: str | None = None,
-        moves: int | None = None,
-        score: int | None = None,
-    ) -> None:
-        """Update status fields and re-render."""
-        self._status = self._status.with_updates(
-            player=player, game=game, room=room, moves=moves, score=score
-        )
+    def update_status(self, snapshot: StatusSnapshot) -> None:
+        """Apply a full status snapshot from controller to the status bar."""
         if self.status_bar:
-            self.status_bar.update_status(self._status)
+            self.status_bar.update_status(snapshot)
 
-    def set_engine_status(self, status: EngineStatus) -> None:
-        """Update engine status."""
-        self._status = self._status.with_updates(engine_status=status)
-        if self.status_bar:
-            self.status_bar.update_status(self._status)
+    # Engine status updates delegated to controller; remove duplication
 
-    def set_ai_status(self, status: AIStatus) -> None:
-        """Update AI status."""
-        self._status = self._status.with_updates(ai_status=status)
-        if self.status_bar:
-            self.status_bar.update_status(self._status)
+    # AI status updates delegated to controller; remove duplication
 
     def run(self) -> None:
         """Run the Textual app."""
@@ -375,7 +358,7 @@ class IFBuddyApp(App):
 
         # Status bar
         status = StatusBar()
-        status.update_status(self._tui._status)
+        # initial status is applied by controller
         self._tui.status_bar = status
         yield status
 

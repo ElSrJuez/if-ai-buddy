@@ -101,13 +101,13 @@ class GameController:
         self._moves = 0
         self._score = 0
         self._room = "Unknown"
-
-        # Create TUI
-        status = StatusSnapshot.default(
+        self._status = StatusSnapshot.default(
             player=self.settings.player_name, game=self.settings.default_game
         )
+
+        # Create TUI
         self._app: IFBuddyTUI = create_app(
-            initial_status=status,
+            initial_status=self._status,
             on_command=self._handle_command,
             on_player_rename=self._handle_player_rename,
             on_restart=self._handle_restart,
@@ -189,7 +189,7 @@ class GameController:
             
             # Extract room
             self._room = self._extract_room(session.intro_text)
-            self._app.update_status(room=self._room)
+            self._update_status(room=self._room)
             
             # Add narration
             self._app.add_narration("Let's begin your adventure...")
@@ -237,7 +237,7 @@ class GameController:
                 self._room = room
             
             # Update status
-            self._app.update_status(
+            self._update_status(
                 moves=self._moves,
                 score=self._score,
                 room=self._room,
@@ -288,16 +288,25 @@ class GameController:
         self._memory.reset()
         self._app.reset_transcript()
         self._app.reset_narration()
-        self._app.update_status(moves=0, score=0, room="Unknown")
+        self._update_status(moves=0, score=0, room="Unknown")
         self._initialize_session()
+
+    # ------------------------------------------------------------------
+    # Status helpers
+    # ------------------------------------------------------------------
+
+    def _update_status(self, **kwargs) -> None:
+        """Update cached status snapshot and push to UI."""
+        self._status = self._status.with_updates(**kwargs)
+        self._app.update_status(self._status)
 
     def _set_engine_status(self, status: EngineStatus) -> None:
         """Set engine status in UI."""
-        self._app.set_engine_status(status)
+        self._update_status(engine_status=status)
 
     def _set_ai_status(self, status: AIStatus) -> None:
         """Set AI status in UI."""
-        self._app.set_ai_status(status)
+        self._update_status(ai_status=status)
 
     def _parse_game_metrics(self, transcript: str) -> tuple[int | None, int | None]:
         """Extract moves and score from transcript."""
