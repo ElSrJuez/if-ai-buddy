@@ -52,9 +52,9 @@ class GameAPI:
             for line in after.splitlines():
                 if not line.strip():
                     break
-                desc_lines.append(line.strip())
+                desc_lines.append(line)
             if desc_lines:
-                description = ' '.join(desc_lines)
+                description = '\n'.join(desc_lines)
         else:
             # if no headerline, we will assume it is an exception response.
             gameException = True
