@@ -54,6 +54,9 @@ class GameAPI:
                     break
                 desc_lines.append(line)
             if desc_lines:
+                # drop first line if it's identical to the room name
+                if desc_lines[0].strip() == room:
+                    desc_lines = desc_lines[1:]
                 description = '\n'.join(desc_lines)
         else:
             # if no headerline, we will assume it is an exception response.
