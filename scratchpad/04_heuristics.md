@@ -24,32 +24,45 @@ Modules & Responsibilities
   - Input: prompt context + transcript or memory excerpt.
   - Behavior: produce structured outputs aligned with `response_schema` using the LLM. Use compact fields to help subsequent prompts.
   - Output: structured dict conforming to `ai_engine_schema`.
-  - Consumers: `game_memroy` (for meta-state), `CompletionsHelper` workflows, analytics.
+  - Consumers: `game_memory` (for meta-state), `CompletionsHelper` workflows, analytics.
 
 Design patterns
 ---------------
 - Schema-first. Each parser implementation receives a JSON Schema reference and a data object. It returns a validated object. Validation errors are logged and fail-safe (either return `null` for fields or raise a controlled exception depending on config).
 - Config-driven schema lookup. `my_config` should expose the schema path(s): e.g. `game_engine_schema_path` and `ai_engine_schema_path`.
-- Single-responsibility. Parsers do parsing + light normalization only. Promotion of facts to persistent memory belongs to `game_memroy`.
-- No duplicate heuristics. Only one module is authoritative for a property. If `game_memroy` needs the same parser, import the canonical parser from `game_engine_heuristics` rather than re-implementing.
+- Single-responsibility. Parsers do parsing + light normalization only. Promotion of facts to persistent memory belongs to `game_memory`.
+- No duplicate heuristics. Only one module is authoritative for a property. If `game_memory` needs the same parser, import the canonical parser from `game_engine_heuristics` rather than re-implementing.
 
-Schema suggestions (example)
-----------------------------
-- `game_engine_schema` (example keys):
-  - `room`: string (short)
-  - `moves`: integer
-  - `score`: integer
-  - `visible_items`: [string]
-  - `description`: string (short)
-  - `raw_transcript`: string
-  - `timestamp`: string (ISO)
+Top-Level Object Schema
+-----------------------
 
-- `ai_engine_schema` (example keys):
-  - `narration`: string
-  - `game_intent`: string
-  - `game_meta_intent`: string
-  - `hidden_next_command`: string
-  - `hidden_next_command_confidence`: number
+Scene Object Class:
+Defines all of the heuristic and ai-inferred properties
+- room_name: the canonical label of the current location (e.g. room name), captured from game output.
+- ?
+
+Game State Object:
+Defines all of the heuristic and ai-inferred properties of the current Move of the game
+This object is maintained by the individual modules as game progresses, and before switching to the new scene it is stored in the Moves table of the game database
+- move number: 
+- command: the exact player input text.
+- room_name: 
+- result: the raw text output from the game engine in response.
+- timestamp: ISO 8601 string marking when the move was executed.
+- associated objects: type and id of the associated objects (for example, room name, item name, npc name, )
+- ?: ?
+
+Game Item object:
+- Object Name: 
+- Location: either Player Inventory, room name, etc. 
+
+NPC Object:
+- npc name:
+- room last seen:
+
+xxx ?:
+- id ?
+- ?
 
 TODO (moderated by new guidelines)
 ---------------------------------
@@ -76,11 +89,11 @@ Note: these TODOs are scoped according to the new rules (schema-driven, config-d
 
 - Consolidate duplicate room heuristics
   - Find: `GameController._extract_room` and `GameMemoryStore._extract_room_name` both implement a capitalized-line heuristic.
-  - Action: remove the controller helper; add `parse_room` to `game_engine_heuristics` and have `game_memroy` call it from `extract_and_promote_state`. Update `GameController` to consume the structured result instead.
+  - Action: remove the controller helper; add `parse_room` to `game_engine_heuristics` and have `game_memory` call it from `extract_and_promote_state`. Update `GameController` to consume the structured result instead.
 
 - Move score/moves parsing to `game_engine_heuristics`
   - Find: `GameController._parse_game_metrics` regex is the authoritative parser for score/moves but lives in controller.
-  - Action: implement `parse_metrics(transcript, schema)` in `game_engine_heuristics`. `game_memroy` and `GameController` should use that single implementation.
+  - Action: implement `parse_metrics(transcript, schema)` in `game_engine_heuristics`. `game_memory` and `GameController` should use that single implementation.
 
 - Define and add config keys for schema paths
   - Find: schema files are read ad-hoc (some code loads `response_schema_path`).
@@ -90,9 +103,9 @@ Note: these TODOs are scoped according to the new rules (schema-driven, config-d
   - Implement small, well-tested, schema-driven parsing functions that accept `transcript`/`raw_response` and return validated objects.
 
 - Create `ai_engine_parsing` module / align with `CompletionsHelper`
-  - Ensure LLM outputs are validated against `ai_engine_schema` and normalized before being saved to `game_memroy`.
+  - Ensure LLM outputs are validated against `ai_engine_schema` and normalized before being saved to `game_memory`.
 
-- Update `game_memroy` (formerly `game_buddy_memory`)
+- Update `game_memory` (formerly `game_buddy_memory`)
   - Ensure `extract_and_promote_state` delegates parsing to `game_engine_heuristics` and only handles promotion/storage.
 
 - Tests & examples
@@ -101,8 +114,6 @@ Note: these TODOs are scoped according to the new rules (schema-driven, config-d
 
 Notes
 -----
-- Naming: the repo uses `game_memroy` as the new name — adopt that everywhere.
+- Naming: the repo uses `game_memory` as the new name — adopt that everywhere.
 - Keep prompts compact: schema fields should be short and avoid redundancy so that LLM prompts remain efficient.
 
-
-<!-- End heuristics.md -->
