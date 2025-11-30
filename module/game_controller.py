@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 from module import my_logging
-from module.game_memory import GameMemoryStore
 from module.completions_helper import CompletionsHelper
 from module.game_api import GameAPI
 from module.rest_helper import DfrotzClient
@@ -72,8 +71,8 @@ class GameController:
         self._game_api: GameAPI | None = None
 
         # Initialize memory
-        self._memory = GameMemoryStore(self.settings.player_name)
-
+        # placeholder
+        
         # Initialize completions helper with injected LLM client
         schema_path = Path(self.settings.response_schema_path)
         if not schema_path.is_absolute():
@@ -227,26 +226,20 @@ class GameController:
             self._memory.add_turn(command, transcript)
             self._memory.extract_and_promote_state(transcript)
             
-            # Parse score/moves
-            moves, score = self._parse_game_metrics(transcript)
-            if moves is not None:
-                self._moves = moves
-            if score is not None:
-                self._score = score
-            
-            # Extract room
-            room = self._extract_room(transcript)
-            if room:
-                self._room = room
-            
+            # Update metrics and room from parsed EngineTurn
+            if outcome.moves is not None:
+                self._moves = outcome.moves
+            if outcome.score is not None:
+                self._score = outcome.score
+            if outcome.room_name:
+                self._room = outcome.room_name
+
             # Update status
             self._update_status(
                 moves=self._moves,
                 score=self._score,
                 room=self._room,
-            )
-            
-            # Generate narration
+            )            # Generate narration
             self._set_ai_status(AIStatus.WORKING)
             try:
                 context = self._memory.get_context_for_prompt()
