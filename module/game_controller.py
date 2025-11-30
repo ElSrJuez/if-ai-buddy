@@ -186,8 +186,7 @@ class GameController:
                 self._app.add_transcript_output(session.intro_text)
             
             # Extract initial state
-            self._memory.add_turn("", session.intro_text)
-            self._memory.extract_and_promote_state(session.intro_text)
+            # placeholder
             
             # Extract room
             self._room = self._extract_room(session.intro_text)
@@ -223,8 +222,7 @@ class GameController:
             self._app.add_transcript_output(transcript)
             
             # Update memory
-            self._memory.add_turn(command, transcript)
-            self._memory.extract_and_promote_state(transcript)
+            # placeholder for calling memory module
             
             # Update metrics and room from parsed EngineTurn
             if outcome.moves is not None:

@@ -78,12 +78,20 @@ class GameAPI:
         log_gameapi_event({"stage": "request", "command": command, "pid": session.handle.pid})
         # Send action to engine and obtain raw JSON
         raw = await self._client.submit_action(session.handle.pid, command)
-        # Log GameAPI response JSON
-        log_gameapi_event({"stage": "response", "command": command, "pid": session.handle.pid, "response": raw})
         # Extract transcript
         transcript = raw["data"].strip()
         # Parse heuristics
         parsed = self._parse_engine_data(transcript)
+        # Log GameAPI response with parsed metadata
+        log_gameapi_event({
+            "stage": "response",
+            "command": command,
+            "pid": session.handle.pid,
+            "response": raw,
+            "metadata": parsed
+        })
+        # Log parsed metadata at GameAPI level
+        log_gameapi_event({"stage": "parsed", "command": command, "pid": session.handle.pid, "metadata": parsed})
         # Build and return enriched turn object
         return EngineTurn(
             session=session,
