@@ -31,6 +31,9 @@ class EngineTurn:
 
 class GameAPI:
     def _parse_engine_data(self, transcript: str) -> dict[str, Any]:
+        # initialize exception flags
+        gameException = False
+        exceptionMessage = None
         # Heuristics parser: extract room, score, moves, inventory, description
         room = None
         header_line = None
