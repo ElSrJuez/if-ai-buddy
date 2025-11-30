@@ -25,6 +25,8 @@ class EngineTurn:
     inventory: list[str] | None = None
     visible_items: list[str] | None = None
     description: str | None = None
+    gameException: bool = False
+    exceptionMessage: str | None = None
     # metadata such as pid and HTTP status can be added later
 
 class GameAPI:
@@ -37,15 +39,29 @@ class GameAPI:
             if 'Score:' in line and 'Moves:' in line:
                 header_line = line.strip()
                 break
+        
+        description = None
         if header_line:
             # room name is text before 'Score:'
             room = header_line.split('Score:')[0].strip()
+            after = transcript.split(header_line, 1)[1].lstrip()
+            desc_lines = []
+            for line in after.splitlines():
+                if not line.strip():
+                    break
+                desc_lines.append(line.strip())
+            if desc_lines:
+                description = ' '.join(desc_lines)
         else:
-            # fallback to first title-case line
+            # if no headerline, we will assume it is an exception response.
+            gameException = True
+            # room name must be null
+            room = None
+            description = None            
             for line in transcript.splitlines():
                 l = line.strip()
                 if l and l[0].isupper() and ' ' in l:
-                    room = l
+                    exceptionMessage = l
                     break
         # Score/moves extraction
         score = None; moves = None
@@ -61,16 +77,8 @@ class GameAPI:
         # Visible items stub
         visible_items = None
         # Description extraction: lines after header until blank line
-        description = None
-        if header_line:
-            after = transcript.split(header_line, 1)[1].lstrip()
-            desc_lines = []
-            for line in after.splitlines():
-                if not line.strip():
-                    break
-                desc_lines.append(line.strip())
-            if desc_lines:
-                description = ' '.join(desc_lines)
+
+            
         return {
             'room_name': room,
             'score': score,
@@ -78,6 +86,8 @@ class GameAPI:
             'inventory': inventory,
             'visible_items': visible_items,
             'description': description,
+            'gameException': gameException,
+            'exceptionMessage': exceptionMessage,
         }
 
     def __init__(self, rest_client: DfrotzClient, *, game_name: str, label: str) -> None:
@@ -123,6 +133,8 @@ class GameAPI:
             inventory=parsed.get("inventory"),
             visible_items=parsed.get("visible_items"),
             description=parsed.get("description"),
+            gameException=parsed.get("gameException", False),
+            exceptionMessage=parsed.get("exceptionMessage"),
         )
 
     async def stop(self) -> None:
