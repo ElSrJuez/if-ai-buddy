@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from module import my_logging
-from module.ai_buddy_memory import GameMemoryStore
+from module.game_memory import GameMemoryStore
 from module.completions_helper import CompletionsHelper
 from module.game_api import GameAPI
 from module.rest_helper import DfrotzClient

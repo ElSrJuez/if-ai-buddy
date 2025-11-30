@@ -18,7 +18,6 @@ class TurnOutcome:
     session: GameSession
     command: str
     transcript: str
-    raw_response: dict[str, Any]
 
 
 class GameAPI:
@@ -38,7 +37,7 @@ class GameAPI:
         session = await self._require_session()
         raw = await self._client.submit_action(session.handle.pid, command)
         transcript = str(raw.get("data", "") or "").strip()
-        return TurnOutcome(session=session, command=command, transcript=transcript, raw_response=raw)
+        return TurnOutcome(session=session, command=command, transcript=transcript)
 
     async def stop(self) -> None:
         if self._session is None:
