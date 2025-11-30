@@ -14,7 +14,8 @@
   "default_game": "zork1r119",
   "player_name": "Adventurer",
   "system_log": "log/system.log",
-  "game_jsonl": "log/game.jsonl",
+  "gameapi_jsonl": "log/gameapi.jsonl",
+  "rest_jsonl": "log/rest_helper.jsonl",
   "game_engine_jsonl_filename_template": "log/{player}_game_engine.jsonl",
   "llm_completion_jsonl_filename_template": "log/{player}_llm_completions.jsonl",
   "voice_settings": {

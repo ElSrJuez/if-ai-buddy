@@ -15,6 +15,10 @@ system_logger = logging.getLogger("mysystemlog")
 game_logger = logging.getLogger("mygamelog")
 engine_logger = logging.getLogger("myenginelog")
 completions_logger = logging.getLogger("mycompletionslog")
+rest_logger = logging.getLogger("myrestlog")
+# Logger for GameAPI events
+gameapi_logger = logging.getLogger("mygameapilog")
+rest_logger = logging.getLogger("myrestlog")
 
 
 def init(player_name: str, config_file: str = "config.json") -> None:
@@ -27,23 +31,31 @@ def init(player_name: str, config_file: str = "config.json") -> None:
     _debug_enabled = log_level <= logging.DEBUG
 
     _SYSTEM_LOG_PATH = str(_require("system_log"))
-    _GAME_LOG_PATH = str(_require("game_jsonl"))
+    _GAME_LOG_PATH = str(_require("gameapi_jsonl"))
     _ENGINE_LOG_PATH = _format_template(
         _require("game_engine_jsonl_filename_template"), player_name
     )
     _COMPLETIONS_LOG_PATH = _format_template(
         _require("llm_completion_jsonl_filename_template"), player_name
     )
+    # Configure rest helper JSONL logging
+    _REST_LOG_PATH = str(_require("rest_jsonl"))
 
     _ensure_parent_dir(_SYSTEM_LOG_PATH)
     _ensure_parent_dir(_GAME_LOG_PATH)
     _ensure_parent_dir(_ENGINE_LOG_PATH)
     _ensure_parent_dir(_COMPLETIONS_LOG_PATH)
+    _ensure_parent_dir(_REST_LOG_PATH)
 
     _configure_logger(system_logger, _SYSTEM_LOG_PATH, log_level, text_format=True)
     _configure_logger(game_logger, _GAME_LOG_PATH, logging.DEBUG)
     _configure_logger(engine_logger, _ENGINE_LOG_PATH, logging.DEBUG)
     _configure_logger(completions_logger, _COMPLETIONS_LOG_PATH, logging.DEBUG)
+    _configure_logger(rest_logger, _REST_LOG_PATH, logging.DEBUG)
+    # Configure GameAPI JSONL logging
+    _GAMEAPI_LOG_PATH = str(_require("gameapi_jsonl"))
+    _ensure_parent_dir(_GAMEAPI_LOG_PATH)
+    _configure_logger(gameapi_logger, _GAMEAPI_LOG_PATH, logging.DEBUG)
 
 
 def _configure_logger(logger: logging.Logger, path: str, level: int, *, text_format: bool = False) -> None:
@@ -147,6 +159,29 @@ def _timestamp() -> str:
 
 
 # ------ Memory-scoped logging helpers ------
+
+def log_rest_event(event: dict) -> None:
+    """Log a rest helper event (raw request/response) to rest JSONL."""
+    if not _debug_enabled:
+        return
+    entry = dict(event)
+    entry["timestamp"] = _timestamp()
+    rest_logger.info(json.dumps(entry))
+
+
+def log_gameapi_event(event: dict) -> None:
+    """Log a GameAPI event (parsed request/response) to gameapi JSONL."""
+    if not _debug_enabled:
+        return
+    entry = dict(event)
+    entry["timestamp"] = _timestamp()
+    gameapi_logger.info(json.dumps(entry))
+    """Log a rest helper event (raw request/response) to rest JSONL."""
+    if not _debug_enabled:
+        return
+    entry = dict(event)
+    entry["timestamp"] = _timestamp()
+    rest_logger.info(json.dumps(entry))
 
 def log_memory_event(event_type: str, data: dict) -> None:
     """Log a memory-related event (episodic turn, state update, etc.) to game JSONL."""

@@ -37,7 +37,7 @@ def _validate_config(config: dict) -> None:
         "default_game",
         "dfrotz_base_url",
         "system_log",
-        "game_jsonl",
+        "gameapi_jsonl",
         "game_engine_jsonl_filename_template",
         "llm_completion_jsonl_filename_template",
         "loglevel",

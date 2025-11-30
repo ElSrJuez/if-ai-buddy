@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from module.rest_helper import DfrotzClient, SessionHandle
+from module.my_logging import log_gameapi_event
 
 
 @dataclass
@@ -18,7 +19,6 @@ class TurnOutcome:
     session: GameSession
     command: str
     transcript: str
-
 
 class GameAPI:
     def __init__(self, rest_client: DfrotzClient, *, game_name: str, label: str) -> None:
@@ -34,9 +34,17 @@ class GameAPI:
         return session
 
     async def send(self, command: str) -> TurnOutcome:
+        # Log GameAPI request with command and session
+        session = await self._require_session()
+        log_gameapi_event({"stage": "request", "command": command, "pid": session.handle.pid})
+        # Send action to engine and obtain raw JSON
+        raw = await self._client.submit_action(session.handle.pid, command)
+        # Log GameAPI response JSON
+        log_gameapi_event({"stage": "response", "command": command, "pid": session.handle.pid, "response": raw})
         session = await self._require_session()
         raw = await self._client.submit_action(session.handle.pid, command)
-        transcript = str(raw.get("data", "") or "").strip()
+        # Enforce deterministic JSON: require "data" key
+        transcript = raw["data"].strip()
         return TurnOutcome(session=session, command=command, transcript=transcript)
 
     async def stop(self) -> None:

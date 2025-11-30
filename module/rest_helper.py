@@ -7,6 +7,7 @@ from typing import Any, Literal
 import httpx
 
 from module import my_logging
+from module.my_logging import log_rest_event
 
 
 @dataclass
@@ -78,6 +79,14 @@ class DfrotzClient:
         json: Any | None = None,
     ) -> Any:
         url = f"{self.base_url}{path}"
+        # Log raw request payload if debugging
+        if my_logging.is_debug_enabled():
+            log_rest_event({
+                "stage": "request",
+                "method": method,
+                "url": url,
+                "payload": json,
+            })
         if my_logging.is_debug_enabled():
             my_logging.system_debug(
                 f"REST request {method} {url} payload={json if json is not None else '<none>'}"
@@ -100,9 +109,18 @@ class DfrotzClient:
                 f"REST response {method} {url} -> {response.status_code}: {preview}"
             )
 
-        if response.headers.get("content-type", "").startswith("application/json"):
-            return response.json()
-        return response.text
+        # Deterministic JSON only for game-engine endpoints
+        parsed = response.json()
+        # Log raw response JSON if debugging
+        if my_logging.is_debug_enabled():
+            log_rest_event({
+                "stage": "response",
+                "method": method,
+                "url": url,
+                "status_code": response.status_code,
+                "response": parsed,
+            })
+        return parsed
 
 
 __all__ = ["DfrotzClient", "RestError", "SessionHandle"]

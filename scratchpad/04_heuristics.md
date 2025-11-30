@@ -15,10 +15,15 @@ Principles
 Modules & Responsibilities
 --------------------------
 - `game_engine_heuristics` (new module):
-  - Input: `TurnOutcome.raw_response` (the complete, un-parsed game engine response).
-  - Behavior: run schema-driven heuristics to extract stable, immediate facts (room, score, moves, visible items, short description, transcript text). Parses the raw response into a normalized object conforming to the configured `game_engine_schema`.
-  - Output: structured dict conforming to `game_engine_schema` (includes `transcript` as one field among others).
-  - Consumers: `game_memory` (for promotion into GameState), `GameController` (for status snapshot), logging.
+  - Input: full REST event from `rest_helper.jsonl`, including:
+    - metadata: `timestamp`, `status_code`, `pid` (process id)
+    - core fields: `payload.action` (player command), `response.data` (raw game output)
+  - Behavior:
+    1. Normalize metadata and core fields into a single dict
+    2. Run schema-driven heuristics on the raw text (`response.data`) to extract facts: `room_name`, `score`, `moves`, `inventory`, `visible_items`, `description`, etc.
+    3. Populate an `EngineTurn` object matching the configured `game_engine_schema`, combining metadata and parsed fields
+  - Output: typed `EngineTurn` dataclass or dict conforming to `game_engine_schema`
+  - Consumers: `game_memory.extract_and_promote_state`, controller status updater, logging, analytics
 
 - `ai_engine_parsing` (new module / reuse `completions_helper`):
   - Input: prompt context + transcript or memory excerpt.
@@ -33,36 +38,24 @@ Design patterns
 - Single-responsibility. Parsers do parsing + light normalization only. Promotion of facts to persistent memory belongs to `game_memory`.
 - No duplicate heuristics. Only one module is authoritative for a property. If `game_memory` needs the same parser, import the canonical parser from `game_engine_heuristics` rather than re-implementing.
 
-Top-Level Object Schema
------------------------
+Canonical EngineTurn Schema
+----------------------------
+Defines all fields produced by the `game_engine_heuristics` parser for a single turn. Merge metadata and parsed game facts into one object.
 
-Scene Object Class:
-Defines all of the heuristic and ai-inferred properties
-- room_name: the canonical label of the current location (e.g. room name), captured from game output.
-- ?
+- `command` (string): exact player input
+- `transcript` (string): raw game output text (`response.data`)
+- `room_name` (string|null): parsed location label
+- `score` (integer|null): parsed score value
+- `moves` (integer|null): parsed move count
+- `inventory` (array[string]|null): list of items carried
+- `visible_items` (array[string]|null): items present in the scene
+- `description` (string|null): short scene description
+- `timestamp` (ISO 8601 string): time when REST response was received
+- `pid` (integer): session process id
+- `status_code` (integer): HTTP status code of the REST response
+- additional fields as defined in `schemas/game_engine_schema.json`
 
-Game State Object:
-Defines all of the heuristic and ai-inferred properties of the current Move of the game
-This object is maintained by the individual modules as game progresses, and before switching to the new scene it is stored in the Moves table of the game database
-- move number: 
-- command: the exact player input text.
-- room_name: 
-- result: the raw text output from the game engine in response.
-- timestamp: ISO 8601 string marking when the move was executed.
-- associated objects: type and id of the associated objects (for example, room name, item name, npc name, )
-- ?: ?
-
-Game Item object:
-- Object Name: 
-- Location: either Player Inventory, room name, etc. 
-
-NPC Object:
-- npc name:
-- room last seen:
-
-xxx ?:
-- id ?
-- ?
+All downstream consumers (memory store, controller, analytics) must use this single schema and object. Remove any other ad-hoc parsing helpers.
 
 TODO (moderated by new guidelines)
 ---------------------------------
