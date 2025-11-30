@@ -29,16 +29,26 @@ class EngineTurn:
 
 class GameAPI:
     def _parse_engine_data(self, transcript: str) -> dict[str, Any]:
-        # Simple heuristics parser (to be expanded/refined)
+        # Heuristics parser: extract room, score, moves, inventory, description
         room = None
+        header_line = None
+        # Identify header line containing room name and score/moves
         for line in transcript.splitlines():
-            l=line.strip()
-            if l and l[0].isupper() and (l.isupper() or ' ' in l):
-                room = l
+            if 'Score:' in line and 'Moves:' in line:
+                header_line = line.strip()
                 break
+        if header_line:
+            # room name is text before 'Score:'
+            room = header_line.split('Score:')[0].strip()
+        else:
+            # fallback to first title-case line
+            for line in transcript.splitlines():
+                l = line.strip()
+                if l and l[0].isupper() and ' ' in l:
+                    room = l
+                    break
         # Score/moves extraction
         score = None; moves = None
-        import re
         m = re.search(r"Score:\s*(\d+)", transcript)
         if m: score = int(m.group(1))
         m2 = re.search(r"Moves:\s*(\d+)", transcript)
@@ -50,7 +60,17 @@ class GameAPI:
             inventory = [i.strip() for i in re.split(r"[,\n]", m3.group(1)) if i.strip()]
         # Visible items stub
         visible_items = None
+        # Description extraction: lines after header until blank line
         description = None
+        if header_line:
+            after = transcript.split(header_line, 1)[1].lstrip()
+            desc_lines = []
+            for line in after.splitlines():
+                if not line.strip():
+                    break
+                desc_lines.append(line.strip())
+            if desc_lines:
+                description = ' '.join(desc_lines)
         return {
             'room_name': room,
             'score': score,
@@ -82,7 +102,7 @@ class GameAPI:
         transcript = raw["data"].strip()
         # Parse heuristics
         parsed = self._parse_engine_data(transcript)
-        # Log GameAPI response with parsed metadata
+        # Log GameAPI response with parsed metadata - temporary logging checkpoint, to be removed later.
         log_gameapi_event({
             "stage": "response",
             "command": command,
@@ -90,7 +110,7 @@ class GameAPI:
             "response": raw,
             "metadata": parsed
         })
-        # Log parsed metadata at GameAPI level
+        # Log parsed metadata at GameAPI level - canonically log the entire gameapi EngineTurn object.
         log_gameapi_event({"stage": "parsed", "command": command, "pid": session.handle.pid, "metadata": parsed})
         # Build and return enriched turn object
         return EngineTurn(
