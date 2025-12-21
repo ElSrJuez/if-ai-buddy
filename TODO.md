@@ -12,10 +12,9 @@
 - [x] Introduce explicit config keys for all schema paths (`game_engine_schema_path`, `ai_engine_schema_path`) and ensure `my_config`/`my_logging`/bootstrap load them; this matches the heuristics doc’s insistence that schema paths be config-driven.
 
 ### 2. Canonical heuristics/parsing pipeline
-- [ ] Build `module/game_engine_heuristics.py` (per `scratchpad/04_heuristics.md`): schema-driven parsers for room, score/move metrics, inventory, visible items, description, and metadata, replacing ad-hoc helpers such as `GameController._extract_room`/`_parse_game_metrics`. This module should be the single source of truth so duplicates are eliminated.
-- [ ] Decide the fate of `GameAPI.EngineTurn.raw_response`: either enrich the heuristics parser by reusing the raw JSON payload or drop the unused field once parsing is centralized.
-- [ ] Create `module/ai_engine_parsing.py` (or similar) so LLM outputs are validated/normalized before being passed to memory/completions, aligning with the heuristics doc’s recommendation to keep parse logic schema-first.
-- [ ] Refactor bootstrap flow so `main.py` does not import LLM-specific factories; introduce a dedicated bootstrap helper that wires `create_llm_client` and keeps `main` purely orchestration.
+- [x] Build `module/game_engine_heuristics.py` (per `scratchpad/04_heuristics.md`): schema-driven parsers for room, score/move metrics, inventory, visible items, description, and metadata, replacing ad-hoc helpers such as `GameController._extract_room`/`_parse_game_metrics`. This module should be the single source of truth so duplicates are eliminated.
+- [x] Decide the fate of `GameAPI.EngineTurn.raw_response`: either enrich the heuristics parser by reusing the raw JSON payload or drop the unused field once parsing is centralized.
+- [x] Create `module/ai_engine_parsing.py` (or similar) so LLM outputs are validated/normalized before being passed to memory/completions, aligning with the heuristics doc’s recommendation to keep parse logic schema-first.
 
 ### 3. Memory & contextual prompt support
 - [ ] Implement the TinyDB-backed `GameMemoryStore` described in `scratchpad/05_game_memory.md`/plan prompt: episodic history (last N turns), persistent `Scene` objects, and context serialization that provides `get_context_for_prompt()` and `reset()` used by the controller.
