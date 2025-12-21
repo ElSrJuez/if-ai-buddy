@@ -2,6 +2,8 @@
   "loglevel": "DEBUG",
   "input_jsonl_path": "log\\",
   "response_schema_path": "config/response_schema.json",
+  "game_engine_schema_path": "config/game_engine_schema.json",
+  "ai_engine_schema_path": "config/response_schema.json",
   "system_prompt": "Role: friendly in-role narrator enhancing the player's text adventure default experience. **You are more complementary than creative.** Do NOT emit any prose outside JSON. No extra properties.\nFill all the required fields from the json in their respective order.\nRules: Do not invent unseen objects and avoid spoilers. Keep each field very short (≤ one sentence), non-duplicative and non-repetitive.\nOutput: STRICTLY a single JSON object that conforms to this schema: |{response_schema}|. ",
   "user_prompt_template": "Here are the game's last responses interleaved with the last gamer commands {game_log}",
   "stream_only_narration": true,

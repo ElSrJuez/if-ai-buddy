@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EngineTurn",
+  "type": "object",
+  "properties": {
+    "command": { "type": "string" },
+    "transcript": { "type": "string" },
+    "room_name": { "type": ["string", "null"] },
+    "score": { "type": ["integer", "null"] },
+    "moves": { "type": ["integer", "null"] },
+    "inventory": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "visible_items": {
+      "type": ["array", "null"],
+      "items": { "type": "string" }
+    },
+    "description": { "type": ["string", "null"] },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "pid": { "type": ["integer", "null"] },
+    "status_code": { "type": ["integer", "null"] }
+  },
+  "required": ["command", "transcript"],
+  "additionalProperties": true
+}

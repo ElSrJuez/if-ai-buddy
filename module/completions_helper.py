@@ -38,11 +38,7 @@ class CompletionsHelper:
         self.response_schema = response_schema
         self.llm_client = llm_client
 
-        # Validate required config keys
-        required = ["llm_provider", "system_prompt", "user_prompt_template"]
-        missing = [k for k in required if k not in config]
-        if missing:
-            raise ValueError(f"Missing config keys: {', '.join(missing)}")
+        # Config validation happens centrally in my_config.load_config()
 
     def run(
         self,

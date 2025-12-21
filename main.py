@@ -30,27 +30,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _validate_config(config: dict) -> None:
-    """Validate that all required config keys are present and valid."""
-    required_keys = [
-        "player_name",
-        "default_game",
-        "dfrotz_base_url",
-        "system_log",
-        "gameapi_jsonl",
-        "game_engine_jsonl_filename_template",
-        "llm_completion_jsonl_filename_template",
-        "loglevel",
-        "llm_provider",
-        "system_prompt",
-        "user_prompt_template",
-    ]
-    
-    missing = [k for k in required_keys if k not in config]
-    if missing:
-        raise ValueError(f"Missing required config keys: {', '.join(missing)}")
-
-
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     config_path = args.config
@@ -61,14 +40,14 @@ def main(argv: list[str] | None = None) -> None:
 
     # Load config (fail fast if invalid)
     config = my_config.load_config(str(config_path))
-    _validate_config(config)
+    schema_paths = my_config.get_schema_paths()
 
     # Extract player name for logging setup
     player_name = config.get("player_name", "Adventurer")
 
     # Initialize logging (fail fast if config is invalid)
     try:
-        my_logging.init(player_name=player_name, config_file=str(config_path))
+        my_logging.init(player_name=player_name, config=config)
     except Exception as exc:
         print(f"Failed to initialize logging: {exc}", file=sys.stderr)
         raise
@@ -76,6 +55,9 @@ def main(argv: list[str] | None = None) -> None:
     # Log startup
     my_logging.system_info("IF AI Buddy starting")
     my_logging.system_info(f"Config loaded from {config_path}")
+    my_logging.system_info(
+        f"Schema paths resolved: game_engine={schema_paths['game_engine']}, ai_engine={schema_paths['ai_engine']}"
+    )
 
     try:
         # Create LLM client (fail fast if config is invalid)

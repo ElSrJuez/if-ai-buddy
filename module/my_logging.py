@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
 
 _config: dict[str, Any] = {}
 _SYSTEM_LOG_PATH = ""
@@ -21,11 +21,24 @@ gameapi_logger = logging.getLogger("mygameapilog")
 rest_logger = logging.getLogger("myrestlog")
 
 
-def init(player_name: str, config_file: str = "config.json") -> None:
+def init(
+    player_name: str,
+    *,
+    config: Mapping[str, Any] | None = None,
+    config_file: str | None = "config.json",
+) -> None:
     """Initialize logging: ensures config-driven paths and log levels."""
     global _config, _SYSTEM_LOG_PATH, _GAME_LOG_PATH, _ENGINE_LOG_PATH, _COMPLETIONS_LOG_PATH, _debug_enabled
-    with open(config_file, "r", encoding="utf-8") as f:
-        _config = json.load(f)
+    if config is None:
+        if not config_file:
+            raise ValueError("Either config or config_file must be provided")
+        from module import my_config as _my_config
+
+        loaded = _my_config.load_config(config_file)
+    else:
+        loaded = dict(config)
+
+    _config = loaded
 
     log_level = _resolve_log_level(_require("loglevel"))
     _debug_enabled = log_level <= logging.DEBUG

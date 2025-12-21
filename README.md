@@ -20,7 +20,7 @@ A modern Python playground that fuses  beloved Text Adventures with a live AI co
 | **Authentic Gameplay** | Relies on a Rest-API dfrotz wrapper. (see `https://github.com/opendns/zmachine-api/blob/master/README.md`). |
 | **AI Gaming Pal** | OpenAI-compatible model (local or cloud) produces structured JSON with: `game-intent`, `game-meta-intent`, and `narration`. |
 | **Textual Collapsible-Panel UI** | Left = original game transcript. Right = AI narrator streaming in real time with colour-alternating blocks. |
-| **Structured-Output Pipeline** | `completions.py` injects `response_schema.json` into the prompt, requests strict JSON, logs every turn, and streams narration (or full JSON for debugging). |
+| **Structured-Output Pipeline** | `completions.py` injects `config/response_schema.json` (AI schema) into prompts, while heuristics modules target `config/game_engine_schema.json` for engine parsing, keeping LLM + engine responsibilities separate. |
 | **Config Toggles** | `config.json` controls model prompt, token limits, and `stream_only_narration` switch. |
 
 ---
@@ -47,8 +47,9 @@ CLASSIC TEXT ADVENTURE HOW_TO_PLAY
 ├─    # Orchestrates UI ↔︎ completion service
 ├─    # Rich TUI (game left, AI right)
 ├─    # Canonical entry/exit points for printing & input; hooks for AI calls
-├─ response_schema.json    # Strict schema enforced on every AI reply
-├─ config.json             # System prompt template & runtime flags
+├─ config/response_schema.json    # Strict schema enforced on every AI reply (AI engine)
+├─ config/game_engine_schema.json # Canonical schema for deterministic parser heuristics
+├─ config/config.json             # System prompt template & runtime flags
 └─ log/ai.jsonl            # Every request/response for analysis
 ```
 

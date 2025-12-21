@@ -35,7 +35,7 @@ class ControllerSettings:
     player_name: str
     default_game: str
     dfrotz_base_url: str
-    response_schema_path: str
+    ai_schema_path: str
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "ControllerSettings":
@@ -47,14 +47,18 @@ class ControllerSettings:
         if missing:
             raise ValueError(f"Missing config keys: {', '.join(missing)}")
 
-        # Load response schema
-        schema_path = config.get("response_schema_path", "config/response_schema.json")
+        # Load AI schema path (new key) with backward-compatible fallback
+        schema_path = (
+            config.get("ai_engine_schema_path")
+            or config.get("response_schema_path")
+            or "config/response_schema.json"
+        )
 
         return cls(
             player_name=str(config["player_name"] or "Adventurer"),
             default_game=str(config["default_game"] or ""),
             dfrotz_base_url=str(config["dfrotz_base_url"]),
-            response_schema_path=schema_path,
+            ai_schema_path=str(schema_path),
         )
 
 
@@ -74,7 +78,7 @@ class GameController:
         # placeholder
         
         # Initialize completions helper with injected LLM client
-        schema_path = Path(self.settings.response_schema_path)
+        schema_path = Path(self.settings.ai_schema_path)
         if not schema_path.is_absolute():
             schema_path = Path(__file__).parent.parent / schema_path
         
