@@ -62,6 +62,16 @@ class ControllerSettings:
         )
 
 
+class NullMemory:
+    """Temporary placeholder memory so narrations still run."""
+
+    def reset(self) -> None:
+        return
+
+    def get_context_for_prompt(self) -> dict[str, Any]:
+        return {}
+
+
 class GameController:
     """Owns session state and mediates between the TUI and game helpers."""
 
@@ -75,8 +85,7 @@ class GameController:
         self._rest_client: DfrotzClient | None = None
         self._game_api: GameAPI | None = None
 
-        # Initialize memory
-        # placeholder
+        self._memory: NullMemory | None = NullMemory()
         
         # Initialize completions helper with injected LLM client
         schema_path = Path(self.settings.ai_schema_path)
