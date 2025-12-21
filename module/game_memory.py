@@ -27,6 +27,31 @@ class SceneIntroduction:
     command: str
 
 
+@dataclass(frozen=True)
+class SceneAction:
+    command: str
+    room: str | None
+    turn: int
+    description_snapshot: list[str] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "command": self.command,
+            "room": self.room,
+            "turn": self.turn,
+            "description_snapshot": self.description_snapshot,
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "SceneAction":
+        return SceneAction(
+            command=data.get("command", ""),
+            room=data.get("room"),
+            turn=data.get("turn", 0),
+            description_snapshot=data.get("description_snapshot"),
+        )
+
+
 @dataclass
 class Scene:
     """Persistent state for a single room/scene."""
@@ -34,7 +59,7 @@ class Scene:
     description_lines: list[str] = field(default_factory=list)
     scene_items: list[str] = field(default_factory=list)
     current_items: list[str] = field(default_factory=list)
-    scene_actions: list[str] = field(default_factory=list)
+    scene_actions: list[SceneAction] = field(default_factory=list)
     scene_intro_collection: list[SceneIntroduction] = field(default_factory=list)
     npcs: list[str] = field(default_factory=list)
     narrations: list[str] = field(default_factory=list)
@@ -49,7 +74,7 @@ class Scene:
             "description_lines": self.description_lines,
             "scene_items": self.scene_items,
             "current_items": self.current_items,
-            "scene_actions": self.scene_actions,
+            "scene_actions": [action.to_dict() for action in self.scene_actions],
             "scene_intro_collection": [asdict(intro) for intro in self.scene_intro_collection],
             "npcs": self.npcs,
             "narrations": self.narrations,
@@ -62,6 +87,30 @@ class Scene:
     def from_dict(data: dict[str, Any]) -> Scene:
         """Deserialize from TinyDB dict."""
         intro_data = data.get("scene_intro_collection", [])
+
+    @dataclass(frozen=True)
+    class SceneAction:
+        command: str
+        room: str | None
+        turn: int
+        description_snapshot: list[str] | None = None
+
+        def to_dict(self) -> dict[str, Any]:
+            return {
+                "command": self.command,
+                "room": self.room,
+                "turn": self.turn,
+                "description_snapshot": self.description_snapshot,
+            }
+
+        @staticmethod
+        def from_dict(data: dict[str, Any]) -> "SceneAction":
+            return SceneAction(
+                command=data.get("command", ""),
+                room=data.get("room"),
+                turn=data.get("turn", 0),
+                description_snapshot=data.get("description_snapshot"),
+            )
         intros = [SceneIntroduction(**intro) for intro in intro_data]
         return Scene(
             room_name=data["room_name"],
@@ -70,7 +119,7 @@ class Scene:
             current_items=data.get("current_items", []),
             scene_actions=data.get("scene_actions", []),
             scene_intro_collection=intros,
-            npcs=data.get("npcs", []),
+        scene_actions: list[SceneAction] = field(default_factory=list)
             narrations=data.get("narrations", []),
             visit_count=data.get("visit_count", 0),
             first_visit_turn=data.get("first_visit_turn"),
@@ -85,7 +134,7 @@ class GameMemoryStore:
       - Description lines (non-duplicative union)
       - Visible/inventory items
       - NPCs encountered
-      - Actions and commands executed
+                "scene_actions": [action.to_dict() for action in self.scene_actions],
       - AI narrations generated
       - Entry metadata (previous room, command, turn number)
     
@@ -104,7 +153,12 @@ class GameMemoryStore:
         if db_path is None:
             db_path = f"log/{player_name}_memory.json"
         
-        self.db_path = Path(db_path)
+                scene_actions=[
+                    SceneAction.from_dict(item)
+                    if isinstance(item, dict)
+                    else SceneAction(command=item, room=data.get("room_name"), turn=data.get("visit_count", 0))
+                    for item in data.get("scene_actions", [])
+                ],
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
         self.db = TinyDB(str(self.db_path), indent=2)
