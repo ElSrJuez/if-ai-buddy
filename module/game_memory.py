@@ -9,8 +9,6 @@ Responsibilities:
 """
 
 from __future__ import annotations
-
-import json
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Mapping
@@ -132,7 +130,7 @@ class GameMemoryStore:
     def update_from_engine_facts(
         self,
         facts: EngineFacts,
-        narration: str | None = None,
+        *,
         command: str | None = None,
         previous_room: str | None = None,
     ) -> None:
@@ -140,22 +138,30 @@ class GameMemoryStore:
         
         Args:
             facts: Parsed `EngineFacts` from `parse_engine_facts()`.
-            narration: Optional AI-generated narration for this turn.
             command: Optional player command that led to this state.
             previous_room: Optional room name before this turn.
         """
         self._turn_count += 1
+
+        turn_envelope = {
+            "turn": self._turn_count,
+            "command": command,
+            "previous_room": previous_room,
+            "room": facts.room_name,
+            "moves": facts.moves,
+            "score": facts.score,
+            "gameException": facts.gameException,
+            "exceptionMessage": facts.exceptionMessage,
+        }
         
         # Skip if engine reported an error
         if facts.gameException:
-            my_logging.log_memory_event("engine_exception", {
-                "message": facts.exceptionMessage,
-                "turn": self._turn_count,
-            })
+            my_logging.log_memory_event("turn_recorded", turn_envelope)
             return
         
         if not facts.room_name:
             my_logging.system_warn("Engine facts missing room_name; skipping memory update")
+            my_logging.log_memory_event("turn_recorded", turn_envelope)
             return
         
         room_name = facts.room_name
@@ -217,18 +223,11 @@ class GameMemoryStore:
             if action_summary not in scene.scene_actions:
                 scene.scene_actions.append(action_summary)
         
-        # Add narration if provided (non-duplicative)
-        if narration:
-            narration = narration.strip()
-            if narration and narration not in scene.narrations:
-                scene.narrations.append(narration)
-                my_logging.log_memory_event("narration_added", {
-                    "room": room_name,
-                    "narration": narration[:80],
-                })
-        
         self._current_room = room_name
         self._persist_scene(scene)
+
+        # Transaction envelope: emitted once per turn so the memory JSONL reads as a timeline.
+        my_logging.log_memory_event("turn_recorded", turn_envelope)
 
     def _persist_scene(self, scene: Scene) -> None:
         """Write scene to TinyDB."""

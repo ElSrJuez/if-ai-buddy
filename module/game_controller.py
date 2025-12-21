@@ -203,10 +203,19 @@ class GameController:
                 self._moves = facts.moves
             if facts.score is not None:
                 self._score = facts.score
+
+            # Turn 0: record intro facts before any narration/prompting.
+            self._memory.update_from_engine_facts(
+                facts,
+                command="__start__",
+                previous_room=None,
+            )
             self._update_status(moves=self._moves, score=self._score, room=self._room)
             
             # Add narration
-            self._app.add_narration("Let's begin your adventure...")
+            intro_narration = "Let's begin your adventure..."
+            self._app.add_narration(intro_narration)
+            self._memory.append_narration(self._room, intro_narration)
             
             self._set_engine_status(EngineStatus.READY)
             self._set_ai_status(AIStatus.IDLE)
