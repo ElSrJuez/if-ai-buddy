@@ -74,10 +74,9 @@ class NullMemory:
 class GameController:
     """Owns session state and mediates between the TUI and game helpers."""
 
-    def __init__(self, config: dict[str, Any], llm_client: Any) -> None:
+    def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
         self.settings = ControllerSettings.from_config(config)
-        self._llm_client = llm_client
         self._player_name = self.settings.player_name
 
         # Initialize async helpers
@@ -107,7 +106,7 @@ class GameController:
                 "required": ["narration"],
             }
 
-        self._completions = CompletionsHelper(self.config, schema, self._llm_client)
+        self._completions = CompletionsHelper(self.config, schema)
 
         # Status tracking
         self._moves = 0

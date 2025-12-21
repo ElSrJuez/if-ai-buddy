@@ -12,7 +12,6 @@ from pathlib import Path
 
 from module import my_config, my_logging
 from module.game_controller import GameController
-from module.llm_factory_FoundryLocal import create_llm_client
 
 def _default_config_path() -> Path:
     return Path(__file__).resolve().parent / "config" / "config.json"
@@ -59,12 +58,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     try:
-        # Create LLM client (fail fast if config is invalid)
-        llm_client = create_llm_client(config)
-        my_logging.system_debug(f"LLM client created for provider: {config.get('llm_provider', 'foundry')}")
-        
-        # Create and run controller
-        controller = GameController(config, llm_client)
+        controller = GameController(config)
         controller.run()
     except Exception as exc:
         my_logging.system_log(f"Fatal error: {exc}")

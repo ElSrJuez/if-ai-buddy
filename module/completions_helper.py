@@ -12,6 +12,7 @@ from pydantic import BaseModel, create_model
 
 from module import my_logging
 from module.ai_engine_parsing import normalize_ai_payload
+from module.llm_factory_FoundryLocal import create_llm_client
 
 
 class CompletionsHelper:
@@ -25,7 +26,6 @@ class CompletionsHelper:
         self,
         config: dict[str, Any],
         response_schema: dict[str, Any],
-        llm_client: Any,
     ) -> None:
         """
         Initialize the completions helper.
@@ -33,11 +33,10 @@ class CompletionsHelper:
         Args:
             config: Configuration dict with llm_provider, llm_model_alias, llm_temperature, etc.
             response_schema: JSON schema dict for structured output.
-            llm_client: Initialized OpenAI client or Foundry local client.
         """
         self.config = config
         self.response_schema = response_schema
-        self.llm_client = llm_client
+        self.llm_client = create_llm_client(config)
 
         # Config validation happens centrally in my_config.load_config()
 

@@ -4,7 +4,7 @@ This note captures everything implemented around LLM completion handling. The he
 
 ## Responsibilities
 1. Accept the latest transcript chunk (plus any supplemental context forthcoming from the memory stack) and render the two-message bundle composed of `system_prompt` (with embedded schema JSON) and `user_prompt_template` (config-driven; context is prepended when available).
-2. Dispatch the prompts via the injected `llm_client` created by `module.llm_factory_FoundryLocal.create_llm_client()`—this ensures `CompletionsHelper` never directly imports `openai` or `foundry_local`.
+2. Instantiate the LLM client internally via `module.llm_factory_FoundryLocal.create_llm_client(config)` so this helper remains the single point that touches engine imports while the rest of the stack stays agnostic.
 3. Parse the returned SDK object (OpenAI chat completion, Foundry dict, or fallback text), normalize the structured payload with `module.ai_engine_parsing.normalize_ai_payload`, and return a `{ payload, raw_response, diagnostics }` dict with latency/tokens/model.
 4. Emit completion diagnostics through `my_logging.log_completion_event`, covering both success and error cases so observability remains consistent.
 5. Provide identical normalization for fallback payloads, keeping downstream consumers agnostic to whether the completion succeeded, failed, or returned syntactically odd text.
