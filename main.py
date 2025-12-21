@@ -12,8 +12,6 @@ from pathlib import Path
 
 from module import my_config, my_logging
 from module.game_controller import GameController
-from module.llm_factory import create_llm_client
-
 
 def _default_config_path() -> Path:
     return Path(__file__).resolve().parent / "config" / "config.json"
@@ -73,8 +71,4 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as exc:
-        print(f"Fatal error: {exc}", file=sys.stderr)
-        sys.exit(1)
+    main()

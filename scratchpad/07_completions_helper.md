@@ -1,22 +1,28 @@
-# Minimal Completions Helper — Notes Only
+# Completions Helper — Current LLM Completion Stack
 
-Single helper that hides the Python `openai` SDK vs `foundry_local_sdk` differences and feeds the loop a "structured narration" object per turn.
+This note captures everything implemented around LLM completion handling. The helper itself stays focused on prompt orchestration, parsing, diagnostics, and handoff, while normalization, heuristics, metadata capture, and engine wiring live in dedicated modules so the stack remains composable and testable.
 
 ## Responsibilities
-1. Accept the *latest transcript chunk* plus any caller-provided crumbs (e.g., player command, simple config flags).
-2. Inject the static system prompt + schema (loaded from `response_schema.json`).
-3. Call the configured backend (`openai` chat completion or Foundry local runner) with streaming turned **off** for now.
-4. Return a dict with the parsed JSON payload (`narration`, `suggested_actions`, etc.) and diagnostics (latency, token counts, model name).
+1. Accept the latest transcript chunk (plus any supplemental context forthcoming from the memory stack) and render the two-message bundle composed of `system_prompt` (with embedded schema JSON) and `user_prompt_template` (config-driven; context is prepended when available).
+2. Dispatch the prompts via the injected `llm_client` created by `module.llm_factory_FoundryLocal.create_llm_client()`—this ensures `CompletionsHelper` never directly imports `openai` or `foundry_local`.
+3. Parse the returned SDK object (OpenAI chat completion, Foundry dict, or fallback text), normalize the structured payload with `module.ai_engine_parsing.normalize_ai_payload`, and return a `{ payload, raw_response, diagnostics }` dict with latency/tokens/model.
+4. Emit completion diagnostics through `my_logging.log_completion_event`, covering both success and error cases so observability remains consistent.
+5. Provide identical normalization for fallback payloads, keeping downstream consumers agnostic to whether the completion succeeded, failed, or returned syntactically odd text.
 
-## Minimal Interface Sketch
-- Constructor locks in the config, schema, and injected client instance.
-- `run(transcript_chunk)` builds the two-message prompt (system + latest transcript) and immediately routes to the proper backend path:
-  - When `config.provider` is `openai`, call `chat.completions.create` with `response_format=self.schema` and the configured temperature.
-  - When `config.provider` is `foundry`, call the Foundry local `chat` entrypoint with the same messages and schema reference.
-- The helper always parses the JSON payload, returning a dict containing the structured narration and the raw SDK response.
+## Completion Flow Highlights
+- **Prompt building**: `_build_system_prompt` replaces `{response_schema}` with the JSON schema string so the LLM always receives a complete, schema-driven directive; `_build_user_prompt` injects the transcript and optional context JSON before sending the request.
+- **Engine dispatch**: `_call_openai` and `_call_foundry` remain as the only engine-specific helpers, but neither module is imported at the top level except through the injected client, preserving separation of concerns.
+- **Parsing & normalization**: `_parse_response` understands OpenAI message objects, Foundry dicts, and raw JSON in code fences; once it yields a dict, `normalize_ai_payload` enforces defaults, casts types, warns about missing required fields, and retains additional keys for future evolution.
+- **Diagnostics**: tokens are extracted from `raw_response.usage` or dict usage fields, latency is measured via `time.time()`, and model alias is read from config before logging the completion event.
+- **Fallback strategy**: exceptions capture the same diagnostics path, normalize a small default payload (narration, intents, hidden command), and continue returning a schema-compliant result.
 
-## Notes
-- Inject `llm_client` (`openai.OpenAI()` or Foundry local client) so tests can stub it out.
-- Use OpenAI's `response_format` and Foundry's `schema` argument for strict JSON.
-- Keep inputs minimal for now: latest transcript chunk only, no streaming or extra memory.
-- Main loop logs both `payload` and `raw` with the parser transcript for traceability.
+## Supporting Modules & Integration
+1. **`module.ai_engine_parsing.normalize_ai_payload`**: enforces schema defaults, casts string/integer/number/boolean types, warns when required fields are missing, and preserves unknown keys so the controller can extend the payload without touching the helper.
+2. **`module.llm_factory_FoundryLocal`**: the only place in the repo that imports `foundry_local` or `openai`; it returns an OpenAI client when `llm_provider` is `openai` or `FoundryLocalManager` otherwise.
+3. **`module.game_engine_heuristics`**: canonical parser for transcripts producing `EngineFacts` and metadata; this ensures prompts and context fed into `CompletionsHelper` come from one authoritative source rather than duplicated regex helpers.
+4. **`module.game_api`**: builds `EngineTurn` objects from the heuristics output, logs parsed metadata with `my_logging.log_gameapi_event`, and exposes structured metadata (timestamp/status_code/pid) that makes it into the completions context without needing `raw_response`.
+5. **`module.game_controller`**: consumes the parsed heuristics when initializing sessions or running turns, updates status fields (room/score/moves) from `EngineFacts`, and relies on `CompletionsHelper` solely for LLM completions.
+
+## Future Work / Notes
+- Any additional AI heuristics or schema weighting should live in `module.ai_engine_parsing` so this helper remains focused on completions.
+- Streaming, multi-step prompts, or command palette integrations can wrap this helper but should continue receiving the normalized `{ payload, raw_response, diagnostics }` shape for consistency.

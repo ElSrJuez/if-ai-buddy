@@ -11,6 +11,7 @@ from openai import OpenAI
 from pydantic import BaseModel, create_model
 
 from module import my_logging
+from module.ai_engine_parsing import normalize_ai_payload
 
 
 class CompletionsHelper:
@@ -74,6 +75,7 @@ class CompletionsHelper:
 
             # Parse response
             payload = self._parse_response(raw_response)
+            payload = normalize_ai_payload(payload, self.response_schema)
 
             # Compute diagnostics
             latency = time.time() - start_time
@@ -111,14 +113,16 @@ class CompletionsHelper:
                 "error": str(exc),
             })
             # Return minimal fallback
+            fallback_payload = {
+                "narration": "The game continues...",
+                "game_intent": "Unknown",
+                "game_meta_intent": "Unknown",
+                "hidden_next_command": "look",
+                "hidden_next_command_confidence": 0,
+            }
+            payload = normalize_ai_payload(fallback_payload, self.response_schema)
             return {
-                "payload": {
-                    "narration": "The game continues...",
-                    "game_intent": "Unknown",
-                    "game_meta_intent": "Unknown",
-                    "hidden_next_command": "look",
-                    "hidden_next_command_confidence": 0,
-                },
+                "payload": payload,
                 "raw_response": None,
                 "diagnostics": {
                     "latency_seconds": latency,

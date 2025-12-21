@@ -22,7 +22,7 @@ def create_llm_client(config: dict[str, Any]) -> Any:
     Raises:
         ValueError: If provider is unknown or required config is missing.
     """
-    provider = config.get("llm_provider", "foundry")
+    provider = config.get("llm_provider")
 
     if provider == "openai":
         api_key = config.get("openai_api_key")

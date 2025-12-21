@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +19,7 @@ from module import my_logging
 from module.completions_helper import CompletionsHelper
 from module.game_api import GameAPI
 from module.rest_helper import DfrotzClient
+from module.game_engine_heuristics import parse_engine_facts
 from module.ui_helper import (
     AIStatus,
     EngineStatus,
@@ -203,11 +202,14 @@ class GameController:
                 self._app.add_transcript_output(session.intro_text)
             
             # Extract initial state
-            # placeholder
-            
-            # Extract room
-            self._room = self._extract_room(session.intro_text)
-            self._update_status(room=self._room)
+            facts = parse_engine_facts(session.intro_text)
+            if facts.room_name:
+                self._room = facts.room_name
+            if facts.moves is not None:
+                self._moves = facts.moves
+            if facts.score is not None:
+                self._score = facts.score
+            self._update_status(moves=self._moves, score=self._score, room=self._room)
             
             # Add narration
             self._app.add_narration("Let's begin your adventure...")
@@ -357,28 +359,6 @@ class GameController:
         """Set AI status in UI."""
         self._update_status(ai_status=status)
 
-    def _parse_game_metrics(self, transcript: str) -> tuple[int | None, int | None]:
-        """Extract moves and score from transcript."""
-        moves = None
-        score = None
-        
-        # Pattern: "Score: 100 Moves: 42" or "Score: 100\nMoves: 42"
-        match = re.search(r"Score:\s*(\d+).*?Moves:\s*(\d+)", transcript, re.DOTALL)
-        if match:
-            score = int(match.group(1))
-            moves = int(match.group(2))
-        
-        return moves, score
-
-    def _extract_room(self, transcript: str) -> str | None:
-        """Extract room name from transcript."""
-        for line in transcript.split("\n"):
-            line = line.strip()
-            if line and len(line) > 2 and line[0].isupper():
-                # Heuristic: room names are capitalized
-                if line.isupper() or (line[0].isupper() and " " in line):
-                    return line
-        return None
 
 
 __all__ = ["GameController"]
