@@ -24,6 +24,11 @@
 - [x] Wire `GameController` to instantiate the new memory store, feed it `EngineTurn` data, and call `self._memory.get_context_for_prompt()` (instead of the current crash). Populate `_memory` during `_async_init_session`/`_async_play_turn`, and ensure `_handle_restart()` and `player rename` flows reset the memory store.
 - [ ] Implement the session lifecycle API from `scratchpad/06_game_controller.md` (clean `start_session`, `change_player`, status events). When status changes (engine/AI/score/moves), emit clear signals so the UI can re-render the split status bar without duplicating logic.
 - [x] Ensure `GameController` no longer re-implements heuristics—consume the canonical parsers from step 2 so metrics/room updates propagate consistently and the diagnostics referenced in scratchpad 04 are satisfied.
+- [ ] Implementation plan: enforce the **Canonical Turn Lifecycle Contract** (see `scratchpad/06_game_controller.md`)
+	- [ ] Treat the `GameAPI.start()` intro transcript as **turn 0**: parse via `game_engine_heuristics`, then call `GameMemoryStore.update_from_engine_facts(...)` *before* any prompt construction or narration so the first player command always has full context.
+	- [ ] Add explicit memory transaction envelope events (e.g., `turn_recorded`, `turn_skipped_engine_exception`) to `*_memory_transactions.jsonl` so each turn has a clear begin/end boundary in logs.
+	- [ ] Remove or deprecate the `narration` parameter on `GameMemoryStore.update_from_engine_facts` to prevent split narration pathways; enforce that narration storage happens only via `append_narration` after completions.
+	- [ ] Add a regression test ensuring ordering: for a single turn, the memory transaction is recorded and `get_context_for_prompt()` reflects the updated `turn_count` **before** `CompletionsHelper.run(...)` is called.
 
 ### 5. Logging & observability refinements
 - [x] Expand `module/my_logging.py` with the memory-scoped helpers described in the plan (`log_memory_event`, `log_state_change`, `log_memory_conflict`) so memory transitions are captured in JSONL rather than buried.

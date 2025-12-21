@@ -4,6 +4,35 @@
 - Remain a thin orchestrator between the TUI, the dfrotz REST engine, and the AI companion helper.
 - Respect new logging rules: only game and completion logs are player-scoped; canonical system log paths come straight from config.
 - Provide identity management inside the TUI (no CLI prompts). Player name changes must reset the game session cleanly.
+- **Enforce the canonical turn lifecycle** so every component (heuristics, memory, logging, completions) follows the same deterministic flow and there are no scattered hooks or race conditions.
+
+## Canonical Turn Lifecycle Contract
+
+Every turn (including the initial welcome) must follow this sequence, and no component may deviate:
+
+1. **Parse**: `GameController` receives the raw engine transcript and calls `game_engine_heuristics.parse_engine_facts(transcript)` once, producing a single authoritative `EngineFacts` object.
+2. **Record**: Before building any prompt, immediately call `GameMemoryStore.update_from_engine_facts(facts, command, previous_room)`. This is the single write point where:
+   - The turn is incremented in the memory store
+   - A new or existing `Scene` is updated with the parsed facts
+   - TinyDB persistence happens atomically
+   - JSONL memory transaction events are emitted (via `my_logging.log_memory_event`)
+   - The controller's status fields (room, moves, score) are derived from the same `EngineFacts`
+3. **Context**: Call `GameMemoryStore.get_context_for_prompt()` to retrieve the fresh memory context now that the turn has been recorded. This context reflects the current state and is passed to the AI helper.
+4. **Prompt & Completion**: Pass the transcript and context to `CompletionsHelper.run(...)`, which normalizes the LLM response via `ai_engine_parsing.normalize_ai_payload` and returns the narration.
+5. **Append Narration**: Call `GameMemoryStore.append_narration(room, narration)` to store the AI-generated narration in the scene's narration list and emit the corresponding JSONL event.
+
+### Why this order matters:
+- No component re-parses the transcript; `game_engine_heuristics` is the sole source of truth.
+- Memory is never stale: prompts always see the latest recorded turn before being constructed.
+- Logging (engine JSONL, memory JSONL, completion logs) happens at predictable points, so the transaction history is coherent.
+- The turn is atomically recorded before any side effects (narration, prompt building) occur, avoiding half-finished states.
+- Every module respects the same sequence, so future contributors cannot accidentally add hooks in the wrong place.
+
+### Initial session (turn 0):
+The welcome transcript from `GameAPI.start()` is treated identically: parse it, call `update_from_engine_facts` to record the introduction scene, then emit the "Let's begin your adventure..." narration via `append_narration`. This ensures the initial state is already in memory when the first player command arrives.
+
+### Scope:
+This contract applies to every turn flow—standard player commands, restarts, and any future async paths. If a new feature needs to modify the game state, it must insert at the appropriate step (usually as a new turn record) rather than bypassing the contract.
 
 ## Responsibilities
 1. **Session Lifecycle**
