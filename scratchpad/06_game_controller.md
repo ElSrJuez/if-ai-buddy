@@ -22,14 +22,15 @@
 
 4. **Player Interaction**
    - Provide `controller.change_player(new_name: str)` called when the TUI name label is clicked.
-   - This method shuts down the current session, reinitializes the API with the new label, and restarts the intro turn.
+   - The rename flow now: close the existing session, reset `GameMemoryStore`, restart transcripts/narrations, rebuild player-scoped logs (engine/completions/memory) via `my_logging.update_player_logs`, then swing into a fresh `start_session` against the renamed `GameAPI` label so logs, memory, and engine state never cross player boundaries.
 
 5. **Turn Flow**
-   - `controller.play_turn(command: str)`
-     - Send command to `GameAPI`
-     - Record score/moves if present (detect via regex `Score:` / `Moves:`)
-     - Update status struct with latest metrics
-     - Forward transcript to the AI helper (to be wired later)
+    - `controller.play_turn(command: str)`
+       - Send command to `GameAPI`
+       - Parse the returned transcript via `game_engine_heuristics` into `EngineFacts`
+       - Immediately call `GameMemoryStore.record_turn` (or the existing `update_from_engine_facts`) with the parsed facts, command, and previous room so the memory JSONL transaction and TinyDB update happen *before* any prompt is constructed
+       - Use the fresh memory context for the prompt, send it to `CompletionsHelper`, receive narration, append that narration through `GameMemoryStore.append_narration`, and only then consider the turn fully logged
+       - Update status struct with the parsed room/moves/score and emit signals so the UI can render the split status bar based on the canonical heuristics output
 
 6. **Status Line Layout (for TUI integration)**
    - Provide a tuple/dict the UI can render as: `AI: <ai_status> | Engine: <engine_status> | Game: <game_name> | Player: <player_name> | Moves: <moves> | Score: <score>`

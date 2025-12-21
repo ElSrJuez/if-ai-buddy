@@ -20,6 +20,7 @@ from module.completions_helper import CompletionsHelper
 from module.game_api import GameAPI
 from module.rest_helper import DfrotzClient
 from module.game_engine_heuristics import parse_engine_facts
+from module.game_memory import GameMemoryStore
 from module.ui_helper import (
     AIStatus,
     EngineStatus,
@@ -61,14 +62,7 @@ class ControllerSettings:
         )
 
 
-class NullMemory:
-    """Temporary placeholder memory so narrations still run."""
 
-    def reset(self) -> None:
-        return
-
-    def get_context_for_prompt(self) -> dict[str, Any]:
-        return {}
 
 
 class GameController:
@@ -83,7 +77,8 @@ class GameController:
         self._rest_client: DfrotzClient | None = None
         self._game_api: GameAPI | None = None
 
-        self._memory: NullMemory | None = NullMemory()
+        # Initialize memory store (persisted to disk)
+        self._memory = GameMemoryStore(self._player_name)
         
         # Initialize completions helper with injected LLM client
         schema_path = Path(self.settings.ai_schema_path)
@@ -256,10 +251,8 @@ class GameController:
             # Add to transcript
             self._app.add_transcript_output(transcript)
             
-            # Update memory
-            # placeholder for calling memory module
-            
-            # Update metrics and room from parsed EngineTurn
+            previous_room = self._room
+            facts = parse_engine_facts(transcript)
             if outcome.moves is not None:
                 self._moves = outcome.moves
             if outcome.score is not None:
@@ -267,28 +260,35 @@ class GameController:
             if outcome.room_name:
                 self._room = outcome.room_name
 
-            # Update status
+            self._memory.update_from_engine_facts(
+                facts,
+                command=command,
+                previous_room=previous_room,
+            )
+
             self._update_status(
                 moves=self._moves,
                 score=self._score,
                 room=self._room,
-            )            # Generate narration
+            )
+
             self._set_ai_status(AIStatus.WORKING)
             try:
                 context = self._memory.get_context_for_prompt()
                 result = self._completions.run(transcript, context)
-                
+
                 payload = result.get("payload", {})
                 if isinstance(payload, dict):
                     narration = payload.get("narration", "...")
                     self._app.add_narration(narration)
-                
+                    self._memory.append_narration(self._room, narration)
+
                 self._set_ai_status(AIStatus.READY)
             except Exception as narr_exc:
                 my_logging.system_debug(f"Narration error: {narr_exc}")
                 self._app.add_narration(f"(Narration unavailable)")
                 self._set_ai_status(AIStatus.ERROR)
-            
+
             self._set_engine_status(EngineStatus.READY)
 
         except Exception as exc:
@@ -306,7 +306,7 @@ class GameController:
         my_logging.system_info("Player rename prompt displayed")
 
     def _handle_restart(self) -> None:
-        """Handle game restart request."""
+        """Handle game restart request: reset session and memory."""
         my_logging.system_info("Game restart requested")
         self._moves = 0
         self._score = 0
@@ -329,6 +329,17 @@ class GameController:
         old_name = self._player_name
         self._player_name = new_name
         my_logging.system_info(f"Renaming player from '{old_name}' to '{new_name}'")
+        
+        # Close old memory and create new player-scoped memory
+        try:
+            self._memory.close()
+            self._memory = GameMemoryStore(new_name)
+        except Exception as exc:
+            self._player_name = old_name
+            my_logging.system_warn(f"Failed to reset memory for new player: {exc}")
+            self._app.add_hint("Unable to initialize memory for new player; see system log.")
+            return
+        
         try:
             my_logging.update_player_logs(new_name)
         except Exception as exc:
@@ -337,9 +348,16 @@ class GameController:
             self._app.add_hint("Unable to update logs for new player; see system log.")
             return
 
+        # Reset game state and restart session
+        self._moves = 0
+        self._score = 0
+        self._room = "Unknown"
+        self._app.reset_transcript()
+        self._app.reset_narration()
         self._status = self._status.with_updates(player=new_name)
         self._app.update_status(self._status)
-        self._app.add_hint(f"Player renamed to {new_name}. Future turns will log under the new identity.")
+        self._app.add_hint(f"Player renamed to {new_name}. Restarting session...")
+        self._initialize_session()
 
     # ------------------------------------------------------------------
     # Status helpers

@@ -19,6 +19,7 @@
   "rest_jsonl": "log/rest_helper.jsonl",
   "game_engine_jsonl_filename_template": "log/{player}_game_engine.jsonl",
   "llm_completion_jsonl_filename_template": "log/{player}_llm_completions.jsonl",
+  "memory_jsonl_filename_template": "log/{player}_memory_transactions.jsonl",
   "voice_settings": {
     "voice": "en_US-lessac-high"
   },

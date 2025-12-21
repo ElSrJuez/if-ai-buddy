@@ -40,3 +40,9 @@ Responsibilities:
 3. Append, update
 4. Persist updated `Scene` to the database.
 5. Use `Scene` memory when building AI prompts or UI updates.
+6. **Trigger order matters** — memory assessment/insertion must complete *before* the next prompt is constructed so the LLM receives the live state for the current turn. Narrations can append immediately afterwards.
+
+### Turn semantics
+- **Turn N completion**: occurs when the game engine finishes responding to the player command and the controller parses the resulting `EngineTurn`. At this point we must run `GameMemoryStore.record_turn(...)` so the memory reflects turn N state before we call `get_context_for_prompt()` for turn N narration.
+- **Prompt for turn N+1**: is built using the updated memory from turn N. The narration added after the LLM completes is still tied to turn N, but it does not form the context for turn N+1 until after it has been appended to the scene.
+- **Implications**: any log/transaction events (TinyDB writes, JSONL memory log entries) should happen as soon as the engine facts are parsed, not when the narration arrives. This makes the prompt deterministic, avoids race conditions, and keeps the welcome turn aligned with the first prompt.

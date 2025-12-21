@@ -13,6 +13,8 @@ _REST_LOG_PATH = ""
 _GAMEAPI_LOG_PATH = ""
 _ENGINE_TEMPLATE = ""
 _COMPLETIONS_TEMPLATE = ""
+_MEMORY_TEMPLATE = ""
+_MEMORY_LOG_PATH = ""
 _current_player = ""
 _debug_enabled = False
 
@@ -23,6 +25,7 @@ completions_logger = logging.getLogger("mycompletionslog")
 rest_logger = logging.getLogger("myrestlog")
 # Logger for GameAPI events
 gameapi_logger = logging.getLogger("mygameapilog")
+memory_logger = logging.getLogger("mymemorylog")
 
 
 def init(
@@ -34,6 +37,7 @@ def init(
     """Initialize logging: ensures config-driven paths and log levels."""
     global _config, _SYSTEM_LOG_PATH, _GAME_LOG_PATH, _ENGINE_LOG_PATH, _COMPLETIONS_LOG_PATH
     global _REST_LOG_PATH, _GAMEAPI_LOG_PATH, _ENGINE_TEMPLATE, _COMPLETIONS_TEMPLATE
+    global _MEMORY_TEMPLATE
     global _current_player, _debug_enabled
     if config is None:
         if not config_file:
@@ -55,6 +59,7 @@ def init(
     _GAMEAPI_LOG_PATH = _GAME_LOG_PATH
     _ENGINE_TEMPLATE = str(_require("game_engine_jsonl_filename_template"))
     _COMPLETIONS_TEMPLATE = str(_require("llm_completion_jsonl_filename_template"))
+    _MEMORY_TEMPLATE = str(_require("memory_jsonl_filename_template"))
 
     _init_player_scoped_logs(player_name)
 
@@ -70,22 +75,26 @@ def init(
 
 
 def _init_player_scoped_logs(player_name: str) -> None:
-    global _ENGINE_LOG_PATH, _COMPLETIONS_LOG_PATH, _current_player
-    if not _ENGINE_TEMPLATE or not _COMPLETIONS_TEMPLATE:
+    global _ENGINE_LOG_PATH, _COMPLETIONS_LOG_PATH, _MEMORY_LOG_PATH, _current_player
+    if not _ENGINE_TEMPLATE or not _COMPLETIONS_TEMPLATE or not _MEMORY_TEMPLATE:
         raise RuntimeError("Logging templates have not been initialized")
 
     engine_path = _format_template(_ENGINE_TEMPLATE, player_name)
     completions_path = _format_template(_COMPLETIONS_TEMPLATE, player_name)
+    memory_path = _format_template(_MEMORY_TEMPLATE, player_name)
 
     _ensure_parent_dir(engine_path)
     _ensure_parent_dir(completions_path)
+    _ensure_parent_dir(memory_path)
 
     _ENGINE_LOG_PATH = engine_path
     _COMPLETIONS_LOG_PATH = completions_path
+    _MEMORY_LOG_PATH = memory_path
     _current_player = player_name
 
     _configure_logger(engine_logger, _ENGINE_LOG_PATH, logging.DEBUG)
     _configure_logger(completions_logger, _COMPLETIONS_LOG_PATH, logging.DEBUG)
+    _configure_logger(memory_logger, _MEMORY_LOG_PATH, logging.DEBUG)
 
 
 def update_player_logs(player_name: str) -> None:
@@ -239,6 +248,15 @@ def _engine_log_json(data: dict) -> None:
         handler.flush()
 
 
+def _memory_log_json(data: dict) -> None:
+    entry = dict(data)
+    entry["timestamp"] = _timestamp()
+    _ensure_logger_ready(memory_logger, _MEMORY_LOG_PATH or "log/memory_transactions.jsonl")
+    memory_logger.info(json.dumps(entry))
+    for handler in memory_logger.handlers:
+        handler.flush()
+
+
 def _timestamp() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
@@ -326,6 +344,7 @@ def log_memory_event(event_type: str, data: Mapping[str, Any] | None = None) -> 
     if _current_player:
         entry.setdefault("player", _current_player)
     _game_log_json(entry)
+    _memory_log_json(entry)
 
 
 def log_memory_conflict(description: str, evidence: str) -> None:

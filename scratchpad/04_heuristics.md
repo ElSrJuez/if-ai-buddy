@@ -24,6 +24,7 @@ Modules & Responsibilities
     3. Populate an `EngineTurn` object matching the configured `game_engine_schema`, combining metadata and parsed fields
   - Output: typed `EngineTurn` dataclass or dict conforming to `game_engine_schema`
   - Consumers: `game_memory.extract_and_promote_state`, controller status updater, logging, analytics
+  - Lifecycles: `GameController` must call `game_engine_heuristics.parse()` once per turn, pass the resulting `EngineFacts` and metadata to `GameMemoryStore.record_turn` *before* building the next prompt, and only append AI narrations afterwards. This ensures the memory JSONL transaction and TinyDB writes are the single source of truth used by prompts.
 
 - `ai_engine_parsing` (new module / reuse `completions_helper`):
   - Input: prompt context + transcript or memory excerpt.
@@ -100,6 +101,7 @@ Note: these TODOs are scoped according to the new rules (schema-driven, config-d
 
 - Update `game_memory` (formerly `game_buddy_memory`)
   - Ensure `extract_and_promote_state` delegates parsing to `game_engine_heuristics` and only handles promotion/storage.
+  - Memory transactions must happen before prompt building so downstream components see the latest turn; narrations append immediately after the completion and are stored via the dedicated memory JSONL stream configured through `memory_jsonl_filename_template`.
 
 - Tests & examples
   - Add unit tests for the canonical parsers (metrics, room, inventory, changes) with representative transcripts.

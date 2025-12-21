@@ -17,13 +17,13 @@
 - [x] Create `module/ai_engine_parsing.py` (or similar) so LLM outputs are validated/normalized before being passed to memory/completions, aligning with the heuristics doc’s recommendation to keep parse logic schema-first.
 
 ### 3. Memory & contextual prompt support
-- [ ] Implement the TinyDB-backed `GameMemoryStore` described in `scratchpad/05_game_memory.md`/plan prompt: episodic history (last N turns), persistent `Scene` objects, and context serialization that provides `get_context_for_prompt()` and `reset()` used by the controller.
-- [ ] Ensure the new memory module logs conflicts/state changes via `my_logging.log_memory_*` helpers and exposes `extract_and_promote_state` so the controller can feed stable facts to `CompletionsHelper` instead of re-parsing transcripts.
+- [x] Implement the TinyDB-backed `GameMemoryStore` described in `scratchpad/05_game_memory.md`/plan prompt: episodic history (last N turns), persistent `Scene` objects, and context serialization that provides `get_context_for_prompt()` and `reset()` used by the controller.
+- [x] Ensure the new memory module logs conflicts/state changes via `my_logging.log_memory_*` helpers and surface context for `CompletionsHelper` without redundant transcript parsing.
 
 ### 4. Controller wiring & session lifecycle hardening
-- [ ] Wire `GameController` to instantiate the new memory store, feed it `EngineTurn` data, and call `self._memory.get_context_for_prompt()` (instead of the current crash). Populate `_memory` during `_async_init_session`/`_async_play_turn`, and ensure `_handle_restart()` and `player rename` flows reset the memory store.
+- [x] Wire `GameController` to instantiate the new memory store, feed it `EngineTurn` data, and call `self._memory.get_context_for_prompt()` (instead of the current crash). Populate `_memory` during `_async_init_session`/`_async_play_turn`, and ensure `_handle_restart()` and `player rename` flows reset the memory store.
 - [ ] Implement the session lifecycle API from `scratchpad/06_game_controller.md` (clean `start_session`, `change_player`, status events). When status changes (engine/AI/score/moves), emit clear signals so the UI can re-render the split status bar without duplicating logic.
-- [ ] Ensure `GameController` no longer re-implements heuristics—consume the canonical parsers from step 2 so metrics/room updates propagate consistently and the diagnostics referenced in scratchpad 04 are satisfied.
+- [x] Ensure `GameController` no longer re-implements heuristics—consume the canonical parsers from step 2 so metrics/room updates propagate consistently and the diagnostics referenced in scratchpad 04 are satisfied.
 
 ### 5. Logging & observability refinements
 - [x] Expand `module/my_logging.py` with the memory-scoped helpers described in the plan (`log_memory_event`, `log_state_change`, `log_memory_conflict`) so memory transitions are captured in JSONL rather than buried.
@@ -42,5 +42,6 @@
 ## Notes
 - Priority order follows the logical bootstrapping sequence: stabilize config/heuristics, add memory, wire controller, then polish logging/UI/testing.
 - Historical items are kept minimal here; the backlog now focuses on next steps informed by the collected markdown TODOs and current code gaps.
+- Memory transactions now run before prompt building so the LLM context reflects the latest turn, and narration additions append immediately after the completion.
 
 # TODO: Desirable:
