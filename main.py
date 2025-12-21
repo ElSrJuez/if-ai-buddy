@@ -12,6 +12,7 @@ from pathlib import Path
 
 from module import my_config, my_logging
 from module.game_controller import GameController
+from module.llm_factory_FoundryLocal import create_llm_client
 
 def _default_config_path() -> Path:
     return Path(__file__).resolve().parent / "config" / "config.json"
