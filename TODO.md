@@ -26,8 +26,9 @@
 - [ ] Ensure `GameController` no longer re-implements heuristics—consume the canonical parsers from step 2 so metrics/room updates propagate consistently and the diagnostics referenced in scratchpad 04 are satisfied.
 
 ### 5. Logging & observability refinements
-- [ ] Expand `module/my_logging.py` with the memory-scoped helpers described in the plan (`log_memory_event`, `log_state_change`, `log_memory_conflict`) so memory transitions are captured in JSONL rather than buried.
-- [ ] Recompute player-scoped log paths (engine/completions) whenever the player name changes, as the controller’s rename flow now needs to reopen those files per plan.
+- [x] Expand `module/my_logging.py` with the memory-scoped helpers described in the plan (`log_memory_event`, `log_state_change`, `log_memory_conflict`) so memory transitions are captured in JSONL rather than buried.
+- [x] Recompute player-scoped log paths (engine/completions) whenever the player name changes, as the controller’s rename flow now needs to reopen those files per plan.
+- [ ] Restore the design rule that a player rename forces a full session restart: stop the current dfrotz session, reset `_memory`, clear transcript/narration, recreate the `GameAPI` with the new label, and only then reopen player-scoped logs. Document and wire these steps so logging/memory never straddle two player identities in one session.
 
 ### 6. UI/UX polish & optional panels
 - [ ] Scaffold the optional tabs from `scratchpad/03_TUI_design.md`/plan prompt: Items tree, Visited Rooms, Achievements, Todo List. Even placeholder widgets should exist so the layout can expand later, and the right column can switch between Narration and the tabbed content.

@@ -90,21 +90,27 @@ class CompletionsHelper:
                 },
             }
 
-            # Log completion
-            if my_logging.is_debug_enabled():
-                my_logging.log_completion_event({
-                    "model": model,
-                    "latency": latency,
-                    "tokens": tokens,
-                    "payload_keys": list(payload.keys()) if isinstance(payload, dict) else [],
-                })
+            # Log completion (always logs minimal event, debug logs full details)
+            my_logging.log_completion_event({
+                "model": model,
+                "latency": latency,
+                "tokens": tokens,
+                "payload_keys": list(payload.keys()) if isinstance(payload, dict) else [],
+            })
 
             return result
 
         except Exception as exc:
             my_logging.system_debug(f"Completions error: {exc}")
-            # Return minimal fallback
+            # Log error event
             latency = time.time() - start_time
+            my_logging.log_completion_event({
+                "model": self.config.get("llm_model_alias", "unknown"),
+                "latency": latency,
+                "tokens": 0,
+                "error": str(exc),
+            })
+            # Return minimal fallback
             return {
                 "payload": {
                     "narration": "The game continues...",

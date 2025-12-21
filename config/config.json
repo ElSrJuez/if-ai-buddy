@@ -1,6 +1,5 @@
 {
   "loglevel": "DEBUG",
-  "input_jsonl_path": "log\\",
   "response_schema_path": "config/response_schema.json",
   "game_engine_schema_path": "config/game_engine_schema.json",
   "ai_engine_schema_path": "config/response_schema.json",

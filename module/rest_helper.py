@@ -79,18 +79,16 @@ class DfrotzClient:
         json: Any | None = None,
     ) -> Any:
         url = f"{self.base_url}{path}"
-        # Log raw request payload if debugging
-        if my_logging.is_debug_enabled():
-            log_rest_event({
-                "stage": "request",
-                "method": method,
-                "url": url,
-                "payload": json,
-            })
-        if my_logging.is_debug_enabled():
-            my_logging.system_debug(
-                f"REST request {method} {url} payload={json if json is not None else '<none>'}"
-            )
+        # Log raw request payload (always logs minimal, debug logs full)
+        log_rest_event({
+            "stage": "request",
+            "method": method,
+            "url": url,
+            "payload": json,
+        })
+        my_logging.system_debug(
+            f"REST request {method} {url} payload={json if json is not None else '<none>'}"
+        )
         try:
             response = await self._client.request(method, url, json=json)
         except httpx.HTTPError as exc:  # network/timeout
@@ -103,23 +101,21 @@ class DfrotzClient:
             )
             raise RestError(response.status_code, response.text, endpoint=url)
 
-        if my_logging.is_debug_enabled():
-            preview = response.text[:500]
-            my_logging.system_debug(
-                f"REST response {method} {url} -> {response.status_code}: {preview}"
-            )
+        preview = response.text[:500]
+        my_logging.system_debug(
+            f"REST response {method} {url} -> {response.status_code}: {preview}"
+        )
 
         # Deterministic JSON only for game-engine endpoints
         parsed = response.json()
-        # Log raw response JSON if debugging
-        if my_logging.is_debug_enabled():
-            log_rest_event({
-                "stage": "response",
-                "method": method,
-                "url": url,
-                "status_code": response.status_code,
-                "response": parsed,
-            })
+        # Log raw response JSON (always logs minimal, debug logs full)
+        log_rest_event({
+            "stage": "response",
+            "method": method,
+            "url": url,
+            "status_code": response.status_code,
+            "response": parsed,
+        })
         return parsed
 
 

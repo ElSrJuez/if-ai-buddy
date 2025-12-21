@@ -106,27 +106,26 @@ class GameAPI:
         handle, intro = await self._client.start_session(self._game_name, self._label)
         session = GameSession(handle=handle, intro_text=str(intro or "").strip())
         self._session = session
+        
+        # Log the initial game state (transaction zero) using the same parsing/logging flow
+        parsed = self._parse_engine_data(session.intro_text)
+        log_gameapi_event({
+            "stage": "parsed",
+            "command": "<init>",  # Special marker for initial game state
+            "pid": session.handle.pid,
+            "metadata": parsed
+        })
+        
         return session
 
     async def send(self, command: str) -> EngineTurn:
-        # Log GameAPI request with command and session
         session = await self._require_session()
-        log_gameapi_event({"stage": "request", "command": command, "pid": session.handle.pid})
-        # Send action to engine and obtain raw JSON
         raw = await self._client.submit_action(session.handle.pid, command)
         # Extract transcript
         transcript = raw["data"].strip()
         # Parse heuristics
         parsed = self._parse_engine_data(transcript)
-        # Log GameAPI response with parsed metadata - temporary logging checkpoint, to be removed later.
-        log_gameapi_event({
-            "stage": "response",
-            "command": command,
-            "pid": session.handle.pid,
-            "response": raw,
-            "metadata": parsed
-        })
-        # Log parsed metadata at GameAPI level - canonically log the entire gameapi EngineTurn object.
+        # Log parsed GameAPI outcome (always logs minimal event, debug logs full stages)
         log_gameapi_event({"stage": "parsed", "command": command, "pid": session.handle.pid, "metadata": parsed})
         # Build and return enriched turn object
         return EngineTurn(

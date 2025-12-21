@@ -69,6 +69,7 @@ class GameController:
         self.config = config
         self.settings = ControllerSettings.from_config(config)
         self._llm_client = llm_client
+        self._player_name = self.settings.player_name
 
         # Initialize async helpers
         self._rest_client: DfrotzClient | None = None
@@ -105,7 +106,7 @@ class GameController:
         self._score = 0
         self._room = "Unknown"
         self._status = StatusSnapshot.default(
-            player=self.settings.player_name, game=self.settings.default_game
+            player=self._player_name, game=self.settings.default_game
         )
 
         # Create TUI and underlying Textual App
@@ -181,9 +182,12 @@ class GameController:
             self._game_api = GameAPI(
                 self._rest_client,
                 game_name=self.settings.default_game,
-                label=self.settings.player_name,
+                label=self._player_name,
             )
             session = await self._game_api.start()
+            
+            # Log the initial game intro as a transcript event (transaction zero)
+            my_logging.log_player_output(session.intro_text)
             
             # Add intro text to transcript
             if session.intro_text:
@@ -208,9 +212,26 @@ class GameController:
 
     def _handle_command(self, command: str) -> None:
         """Handle a player command."""
+        command = command.strip()
+        if not command:
+            return
+        if self._handle_local_command(command):
+            return
         my_logging.log_player_input(command)
         self._set_engine_status(EngineStatus.BUSY)
         self._app.app.call_later(lambda: asyncio.create_task(self._async_play_turn(command)))
+
+    def _handle_local_command(self, command: str) -> bool:
+        """Handle controller-local commands (e.g., /player rename)."""
+        lowered = command.lower()
+        if lowered.startswith("/player "):
+            new_name = command.split(" ", 1)[1].strip()
+            if not new_name:
+                self._app.add_hint("Usage: /player <new name>")
+            else:
+                self._apply_player_name_change(new_name)
+            return True
+        return False
 
     async def _async_play_turn(self, command: str) -> None:
         """Async execution of a turn: send command, get response, generate narration."""
@@ -269,10 +290,10 @@ class GameController:
 
     def _handle_player_rename(self) -> None:
         """Handle player rename request."""
-        my_logging.system_info("Player rename requested (not yet implemented)")
         self._app.add_hint(
-            "Player rename will be available in a future iteration."
+            "Player rename: type /player <new name> in the command box to update logs and status."
         )
+        my_logging.system_info("Player rename prompt displayed")
 
     def _handle_restart(self) -> None:
         """Handle game restart request."""
@@ -285,6 +306,30 @@ class GameController:
         self._app.reset_narration()
         self._update_status(moves=0, score=0, room="Unknown")
         self._initialize_session()
+
+    def _apply_player_name_change(self, new_name: str) -> None:
+        new_name = new_name.strip()
+        if not new_name:
+            self._app.add_hint("Player name cannot be empty.")
+            return
+        if new_name == self._player_name:
+            self._app.add_hint(f"Player already named {new_name}.")
+            return
+
+        old_name = self._player_name
+        self._player_name = new_name
+        my_logging.system_info(f"Renaming player from '{old_name}' to '{new_name}'")
+        try:
+            my_logging.update_player_logs(new_name)
+        except Exception as exc:
+            self._player_name = old_name
+            my_logging.system_warn(f"Failed to update player logs: {exc}")
+            self._app.add_hint("Unable to update logs for new player; see system log.")
+            return
+
+        self._status = self._status.with_updates(player=new_name)
+        self._app.update_status(self._status)
+        self._app.add_hint(f"Player renamed to {new_name}. Future turns will log under the new identity.")
 
     # ------------------------------------------------------------------
     # Status helpers
