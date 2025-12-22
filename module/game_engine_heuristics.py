@@ -78,12 +78,17 @@ def _extract_description(
     split_parts = transcript.split(header_line, 1)
     if len(split_parts) < 2:
         return None
-    remainder = split_parts[1].lstrip()
+    remainder = split_parts[1]
     desc_lines: list[str] = []
+    started = False
     for line in remainder.splitlines():
-        if not line.strip():
-            break
+        stripped = line.strip()
+        if not stripped:
+            if started:
+                break
+            continue
         desc_lines.append(line)
+        started = True
     if desc_lines and room_name and desc_lines[0].strip() == room_name:
         desc_lines = desc_lines[1:]
     if desc_lines:

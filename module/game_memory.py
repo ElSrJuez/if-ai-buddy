@@ -19,31 +19,6 @@ from module import my_logging
 from module.game_engine_heuristics import EngineFacts
 
 
-def _extract_action_result(description: str | None, command: str, default_room: str) -> str:
-    """Extract the outcome of a command from the description.
-    
-    For movement commands, returns the room name.
-    For other commands, returns the first line of description (the direct result).
-    """
-    if not description:
-        return default_room
-    
-    # Movement verbs typically result in a room name
-    movement_verbs = {"go", "walk", "move", "west", "east", "north", "south", "up", "down", "climb", "enter", "leave"}
-    cmd_lower = command.lower().split()[0]  # Get first word of command
-    
-    if cmd_lower in movement_verbs:
-        return default_room
-    
-    # For non-movement, return first non-empty line of description
-    for line in description.splitlines():
-        stripped = line.strip()
-        if stripped:
-            return stripped[:60] + ("..." if len(stripped) > 60 else "")
-    
-    return "(no result)"
-
-
 @dataclass
 class SceneIntroduction:
     """Metadata tracking how the player entered this scene."""
@@ -220,20 +195,19 @@ class GameMemoryStore:
         scene.visit_count += 1
         scene.last_visit_turn = self._turn_count
         
-        # Track entry if coming from a different room (store only the last predecessor)
+        # Track entry if coming from a different room (store only immediate predecessor)
         if previous_room and previous_room != room_name:
             entry = SceneIntroduction(
                 previous_room=previous_room,
-                move_number=facts.moves or self._turn_count,
+                move_number=facts.moves if facts.moves is not None else self._turn_count,
                 command=command or "unknown",
             )
-            # Replace the entire intro collection with just this entry (single predecessor)
             scene.scene_intro_collection = [entry]
             my_logging.log_memory_event("scene_intro_updated", {
                 "room": room_name,
-                "previous_room": previous_room,
+                "from": previous_room,
+                "move_number": entry.move_number,
                 "command": command,
-                "move_number": facts.moves or self._turn_count,
             })
         
         # Accumulate description lines (non-duplicative)
@@ -253,19 +227,35 @@ class GameMemoryStore:
                 if item and item not in scene.scene_items:
                     scene.scene_items.append(item)
         
-        # Update current inventory snapshot
-        if facts.inventory is not None:
-            old_inventory = set(scene.current_items)
-            new_inventory = set(facts.inventory)
-            if old_inventory != new_inventory:
-                scene.current_items = facts.inventory
-                my_logging.log_state_change("inventory", list(old_inventory), facts.inventory)
+        # Update current items from visible room objects
+        if facts.visible_items is not None:
+            old_items = set(scene.current_items)
+            new_items = set(facts.visible_items)
+            if old_items != new_items:
+                scene.current_items = facts.visible_items
+                my_logging.log_state_change("current_items", list(old_items), facts.visible_items)
         
-        # Accumulate action (command that led here)
+        # Accumulate action (command and result)
         if command:
-            action_summary = f"{command} -> {room_name}"
+            # Determine result: room transition or first description line
+            if room_name and previous_room and room_name != previous_room:
+                # Movement action: result is the new room
+                result = room_name
+            elif facts.description:
+                # Interaction action: result is first line of description
+                first_line = facts.description.split('\n')[0].strip()
+                result = first_line if first_line else "..."
+            else:
+                result = "..."
+            
+            action_summary = f"{command} -> {result}"
             if action_summary not in scene.scene_actions:
                 scene.scene_actions.append(action_summary)
+                my_logging.log_memory_event("scene_action_added", {
+                    "room": room_name,
+                    "command": command,
+                    "result": result[:80],
+                })
         
         self._current_room = room_name
         self._persist_scene(scene)
