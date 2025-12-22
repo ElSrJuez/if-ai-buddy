@@ -18,8 +18,8 @@ Fields:
 - `description_lines`: array of strings — an accumulative, non-duplicative list of lines appearing in `EngineTurn.description`. New lines are appended only if not already present.
 - `sceneItems`:  an accumulative, non-duplicative list of seen in-game objects
 - `currentItems`: list of current in-game objects as it last ended/resulted within this Scene
-- `sceneActions`: an accumulative, non-duplicative list of commands and results occuring in this Scene, including the command/way of exit
-- `sceneIntroCollection`: a collection of objects with: the previous room name(s), move number(s) and command/action(s) that have taken the player into this Scene
+- `sceneActions`: an accumulative, non-duplicative list of commands and results occuring in this Scene. For example on room changing actions, should include the command/way of exit
+- `sceneIntroCollection`: a collection of objects with: the previous room name(s), move number(s) and command/action(s) that have taken the player into this Scene *from the previous*
 - `NPCs`: an accumulative, non-duplicative list of NPC names seen in this Scene
 
 AI Inferred fields:

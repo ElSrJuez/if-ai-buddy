@@ -11,12 +11,37 @@ Responsibilities:
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from tinydb import TinyDB, Query
 
 from module import my_logging
 from module.game_engine_heuristics import EngineFacts
+
+
+def _extract_action_result(description: str | None, command: str, default_room: str) -> str:
+    """Extract the outcome of a command from the description.
+    
+    For movement commands, returns the room name.
+    For other commands, returns the first line of description (the direct result).
+    """
+    if not description:
+        return default_room
+    
+    # Movement verbs typically result in a room name
+    movement_verbs = {"go", "walk", "move", "west", "east", "north", "south", "up", "down", "climb", "enter", "leave"}
+    cmd_lower = command.lower().split()[0]  # Get first word of command
+    
+    if cmd_lower in movement_verbs:
+        return default_room
+    
+    # For non-movement, return first non-empty line of description
+    for line in description.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:60] + ("..." if len(stripped) > 60 else "")
+    
+    return "(no result)"
 
 
 @dataclass
@@ -27,31 +52,6 @@ class SceneIntroduction:
     command: str
 
 
-@dataclass(frozen=True)
-class SceneAction:
-    command: str
-    room: str | None
-    turn: int
-    description_snapshot: list[str] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "command": self.command,
-            "room": self.room,
-            "turn": self.turn,
-            "description_snapshot": self.description_snapshot,
-        }
-
-    @staticmethod
-    def from_dict(data: dict[str, Any]) -> "SceneAction":
-        return SceneAction(
-            command=data.get("command", ""),
-            room=data.get("room"),
-            turn=data.get("turn", 0),
-            description_snapshot=data.get("description_snapshot"),
-        )
-
-
 @dataclass
 class Scene:
     """Persistent state for a single room/scene."""
@@ -59,7 +59,7 @@ class Scene:
     description_lines: list[str] = field(default_factory=list)
     scene_items: list[str] = field(default_factory=list)
     current_items: list[str] = field(default_factory=list)
-    scene_actions: list[SceneAction] = field(default_factory=list)
+    scene_actions: list[str] = field(default_factory=list)
     scene_intro_collection: list[SceneIntroduction] = field(default_factory=list)
     npcs: list[str] = field(default_factory=list)
     narrations: list[str] = field(default_factory=list)
@@ -74,7 +74,7 @@ class Scene:
             "description_lines": self.description_lines,
             "scene_items": self.scene_items,
             "current_items": self.current_items,
-            "scene_actions": [action.to_dict() for action in self.scene_actions],
+            "scene_actions": self.scene_actions,
             "scene_intro_collection": [asdict(intro) for intro in self.scene_intro_collection],
             "npcs": self.npcs,
             "narrations": self.narrations,
@@ -84,42 +84,32 @@ class Scene:
         }
 
     @staticmethod
-    def from_dict(data: dict[str, Any]) -> Scene:
+    def from_dict(data: dict[str, Any]) -> "Scene":
         """Deserialize from TinyDB dict."""
         intro_data = data.get("scene_intro_collection", [])
+        intros: list[SceneIntroduction] = []
+        for intro in intro_data:
+            if isinstance(intro, SceneIntroduction):
+                intros.append(intro)
+            elif isinstance(intro, dict):
+                intros.append(SceneIntroduction(**intro))
 
-    @dataclass(frozen=True)
-    class SceneAction:
-        command: str
-        room: str | None
-        turn: int
-        description_snapshot: list[str] | None = None
+        raw_actions = data.get("scene_actions", [])
+        normalized_actions: list[str] = []
+        for action in raw_actions:
+            if isinstance(action, dict):
+                normalized_actions.append(action.get("command", ""))
+            elif action is not None:
+                normalized_actions.append(str(action))
 
-        def to_dict(self) -> dict[str, Any]:
-            return {
-                "command": self.command,
-                "room": self.room,
-                "turn": self.turn,
-                "description_snapshot": self.description_snapshot,
-            }
-
-        @staticmethod
-        def from_dict(data: dict[str, Any]) -> "SceneAction":
-            return SceneAction(
-                command=data.get("command", ""),
-                room=data.get("room"),
-                turn=data.get("turn", 0),
-                description_snapshot=data.get("description_snapshot"),
-            )
-        intros = [SceneIntroduction(**intro) for intro in intro_data]
         return Scene(
-            room_name=data["room_name"],
+            room_name=data.get("room_name", ""),
             description_lines=data.get("description_lines", []),
             scene_items=data.get("scene_items", []),
             current_items=data.get("current_items", []),
-            scene_actions=data.get("scene_actions", []),
+            scene_actions=normalized_actions,
             scene_intro_collection=intros,
-        scene_actions: list[SceneAction] = field(default_factory=list)
+            npcs=data.get("npcs", []),
             narrations=data.get("narrations", []),
             visit_count=data.get("visit_count", 0),
             first_visit_turn=data.get("first_visit_turn"),
@@ -130,13 +120,13 @@ class Scene:
 class GameMemoryStore:
     """TinyDB-backed episodic and persistent memory for a game session.
     
-    Maintains a set of Scene objects, one per unique room, and tracks:
-      - Description lines (non-duplicative union)
-      - Visible/inventory items
-      - NPCs encountered
-                "scene_actions": [action.to_dict() for action in self.scene_actions],
-      - AI narrations generated
-      - Entry metadata (previous room, command, turn number)
+        Maintains a set of Scene objects, one per unique room, and tracks:
+            - Description lines (non-duplicative union)
+            - Visible/inventory items
+            - NPCs encountered
+            - Scene actions
+            - AI narrations generated
+            - Entry metadata (previous room, command, turn number)
     
     Provides serialization to disk and context extraction for prompts.
     """
@@ -152,15 +142,9 @@ class GameMemoryStore:
         
         if db_path is None:
             db_path = f"log/{player_name}_memory.json"
-        
-                scene_actions=[
-                    SceneAction.from_dict(item)
-                    if isinstance(item, dict)
-                    else SceneAction(command=item, room=data.get("room_name"), turn=data.get("visit_count", 0))
-                    for item in data.get("scene_actions", [])
-                ],
+        self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         self.db = TinyDB(str(self.db_path), indent=2)
         self._scenes: dict[str, Scene] = {}
         self._current_room: str | None = None
@@ -236,15 +220,21 @@ class GameMemoryStore:
         scene.visit_count += 1
         scene.last_visit_turn = self._turn_count
         
-        # Track entry if coming from a different room
+        # Track entry if coming from a different room (store only the last predecessor)
         if previous_room and previous_room != room_name:
             entry = SceneIntroduction(
                 previous_room=previous_room,
-                move_number=self._turn_count,
+                move_number=facts.moves or self._turn_count,
                 command=command or "unknown",
             )
-            if entry not in scene.scene_intro_collection:
-                scene.scene_intro_collection.append(entry)
+            # Replace the entire intro collection with just this entry (single predecessor)
+            scene.scene_intro_collection = [entry]
+            my_logging.log_memory_event("scene_intro_updated", {
+                "room": room_name,
+                "previous_room": previous_room,
+                "command": command,
+                "move_number": facts.moves or self._turn_count,
+            })
         
         # Accumulate description lines (non-duplicative)
         if facts.description:
