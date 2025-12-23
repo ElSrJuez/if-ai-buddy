@@ -56,6 +56,8 @@ Responsibilities:
 
 Consumers should treat `actionRecords` as the canonical source when updating UI trees, reconstructing inventory timelines, or replaying state transitions. The legacy `sceneActions` string list remains for backward compatibility with older prompts, but new integrations must prefer the structured records to avoid heuristic drift.
 
+> **Limitations:** Multi-step commands such as “take the nest and climb tree” arrive as a single transcript chunk. Because the runtime classifies the entire command by the dominant effect (movement if the room changes), the resulting `ActionRecord` may be tagged `movement` and the embedded `take` verb will never exercise the item-interaction logic. Until the LLM parsing layer is implemented, we treat these composite commands as best-effort hints only: items may stay in their previous state even though the transcript says they were manipulated, and follow-up scenes must rely on future turns (or manual correction) to reconcile the state.
+
 ## Workflow
 
 1. Receive `EngineTurn` from `GameAPI`.
