@@ -17,6 +17,7 @@ from typing import Any
 
 from module import my_logging
 from module.llm_narration_helper import CompletionsHelper
+from module.narration_job_builder import NarrationJobBuilder, NarrationJobSpec
 from module.game_api import GameAPI
 from module.rest_helper import DfrotzClient
 from module.game_engine_heuristics import parse_engine_facts
@@ -112,6 +113,9 @@ class GameController:
             }
 
         self._completions = CompletionsHelper(self.config, schema)
+            self._narration_builder = NarrationJobBuilder(self.config)
+        self._narration_tasks: set[asyncio.Task[Any]] = set()
+        self._active_narration_jobs = 0
 
         # Status tracking
         self._moves = 0
@@ -159,6 +163,7 @@ class GameController:
                 my_logging.system_debug("Game API cleanup skipped (async)")
             except Exception as exc:
                 my_logging.system_debug(f"Cleanup error: {exc}")
+        self._cancel_pending_narrations()
 
     def _queue_bootstrap_messages(self) -> None:
         """Queue initial intro messages."""
@@ -166,9 +171,6 @@ class GameController:
             self._app.add_transcript_output(
                 "Welcome to IF AI Buddy!\n\n"
                 "Initializing game engine..."
-            )
-            self._app.add_narration(
-                "Connecting to the game world..."
             )
             # Initialize session
             self._app.app.call_later(self._initialize_session)
@@ -222,14 +224,21 @@ class GameController:
                 transcript=session.intro_text,
             )
             self._update_status(moves=self._moves, score=self._score, room=self._room)
-            
-            # Add narration
-            intro_narration = "Let's begin your adventure..."
-            self._app.add_narration(intro_narration)
-            self._memory.append_narration(self._room, intro_narration)
-            
+
+            narration_started = False
+            if session.intro_text:
+                context = self._memory.get_context_for_prompt()
+                    job_spec = self._narration_builder.build_job(
+                        memory_context=context,
+                        trigger="init",
+                        latest_transcript=session.intro_text,
+                    )
+                    self._schedule_narration_job(job_spec, self._room)
+                narration_started = True
+
             self._set_engine_status(EngineStatus.READY)
-            self._set_ai_status(AIStatus.IDLE)
+            if not narration_started:
+                self._set_ai_status(AIStatus.IDLE)
         except Exception as exc:
             my_logging.system_debug(f"Async init error: {exc}")
             self._app.add_transcript_output(f"Error initializing: {exc}")
@@ -293,22 +302,13 @@ class GameController:
                 room=self._room,
             )
 
-            self._set_ai_status(AIStatus.WORKING)
-            try:
-                context = self._memory.get_context_for_prompt()
-                result = self._completions.run(transcript, context)
-
-                payload = result.get("payload", {})
-                if isinstance(payload, dict):
-                    narration = payload.get("narration", "...")
-                    self._app.add_narration(narration)
-                    self._memory.append_narration(self._room, narration)
-
-                self._set_ai_status(AIStatus.READY)
-            except Exception as narr_exc:
-                my_logging.system_debug(f"Narration error: {narr_exc}")
-                self._app.add_narration(f"(Narration unavailable)")
-                self._set_ai_status(AIStatus.ERROR)
+            context = self._memory.get_context_for_prompt()
+                job_spec = self._narration_builder.build_job(
+                    memory_context=context,
+                    trigger="turn",
+                    latest_transcript=transcript,
+                )
+                self._schedule_narration_job(job_spec, self._room)
 
             self._set_engine_status(EngineStatus.READY)
 
@@ -332,6 +332,7 @@ class GameController:
         self._moves = 0
         self._score = 0
         self._room = "Unknown"
+        self._cancel_pending_narrations()
         self._memory.reset()
         self._app.reset_transcript()
         self._app.reset_narration()
@@ -388,6 +389,59 @@ class GameController:
             {"player": player_name},
             project_root=self._project_root,
         )
+
+    def _cancel_pending_narrations(self) -> None:
+        if not self._narration_tasks:
+            return
+        for task in list(self._narration_tasks):
+            task.cancel()
+        self._narration_tasks.clear()
+        self._active_narration_jobs = 0
+
+    def _schedule_narration_job(
+        self,
+        job_spec: NarrationJobSpec,
+        room_snapshot: str,
+    ) -> None:
+        """Enqueue a narration job without blocking the main turn loop."""
+        self._active_narration_jobs += 1
+        self._set_ai_status(AIStatus.WORKING)
+        task = asyncio.create_task(
+            self._run_narration_job(job_spec, room_snapshot)
+        )
+        task.add_done_callback(self._on_narration_done)
+        self._narration_tasks.add(task)
+
+    async def _run_narration_job(
+        self,
+        job_spec: NarrationJobSpec,
+        room_snapshot: str,
+    ) -> dict[str, Any]:
+        result = await self._completions.stream_narration(
+            job_spec,
+            on_chunk=self._app.add_narration,
+        )
+        payload = result.get("payload", {})
+        narration = payload.get("narration")
+        if narration:
+            self._memory.append_narration(room_snapshot, narration)
+        return result
+
+    def _on_narration_done(self, task: asyncio.Task[Any]) -> None:
+        self._narration_tasks.discard(task)
+        if task.cancelled():
+            self._active_narration_jobs = max(0, self._active_narration_jobs - 1)
+            if self._active_narration_jobs == 0:
+                self._set_ai_status(AIStatus.READY)
+            return
+
+        exception = task.exception()
+        if exception:
+            my_logging.system_warn(f"Narration job failed: {exception}")
+            self._app.add_hint("Narration failed; check logs for details.")
+        self._active_narration_jobs = max(0, self._active_narration_jobs - 1)
+        if self._active_narration_jobs == 0:
+            self._set_ai_status(AIStatus.READY)
 
     # ------------------------------------------------------------------
     # Status helpers

@@ -1,84 +1,61 @@
-"""LLM completion helper with schema-guided structured output."""
+"""LLM narration helper focused on streaming outputs for the narration column."""
 
 from __future__ import annotations
 
-import json
-import re
+import asyncio
 import time
-from typing import Any
+from typing import Any, Callable
 
 from openai import OpenAI
-from pydantic import BaseModel, create_model
 
 from module import my_logging
 from module.ai_engine_parsing import normalize_ai_payload
 from module.llm_factory_FoundryLocal import create_llm_client
+from module.narration_job_builder import NarrationJobSpec
 
 
 class CompletionsHelper:
-    """
-    Orchestrates LLM calls with schema-enforced output.
-    
-    Supports both OpenAI and Foundry backends.
-    """
+    """Helper that orchestrates narration requests and streaming updates."""
 
-    def __init__(
-        self,
-        config: dict[str, Any],
-        response_schema: dict[str, Any],
-    ) -> None:
-        """
-        Initialize the completions helper.
-        
-        Args:
-            config: Configuration dict with llm_provider, llm_model_alias, llm_temperature, etc.
-            response_schema: JSON schema dict for structured output.
-        """
+    def __init__(self, config: dict[str, Any], response_schema: dict[str, Any]) -> None:
         self.config = config
         self.response_schema = response_schema
         self.llm_client = create_llm_client(config)
 
-        # Config validation happens centrally in my_config.load_config()
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-    def run(
+    async def stream_narration(
         self,
-        transcript_chunk: str,
-        context: dict[str, Any] | None = None,
+        job: NarrationJobSpec,
+        on_chunk: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
-        """
-        Build prompt, call LLM, and return structured result.
-        
-        Args:
-            transcript_chunk: Latest game transcript snippet.
-            context: Optional dict with episodic/state memory (embedded in user message).
-        
-        Returns:
-            Dict with keys:
-                - payload: Parsed JSON response (or fallback if parse fails)
-                - raw_response: SDK response object
-                - diagnostics: {latency, tokens, model}
-        """
+        """Stream narration to the provided callback and return the normalized payload."""
+        loop = asyncio.get_running_loop()
         start_time = time.time()
-
-        # Build prompt
-        system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(transcript_chunk, context)
+        messages = job.messages
+        metadata = job.metadata or {}
 
         try:
-            # Call LLM
             if self.config.get("llm_provider") == "openai":
-                raw_response = self._call_openai(system_prompt, user_prompt)
+                narration_text, raw_response = await self._stream_openai(
+                    messages,
+                    on_chunk,
+                    loop,
+                )
             else:
-                # Foundry local or other provider
-                raw_response = self._call_foundry(system_prompt, user_prompt)
+                narration_text, raw_response = await self._stream_foundry(
+                    messages,
+                    on_chunk,
+                    loop,
+                )
 
-            # Parse response
-            payload = self._parse_response(raw_response)
-            payload = normalize_ai_payload(payload, self.response_schema)
-
-            # Compute diagnostics
-            latency = time.time() - start_time
+            payload = normalize_ai_payload(
+                {"narration": narration_text}, self.response_schema
+            )
             tokens = self._extract_token_count(raw_response)
+            latency = time.time() - start_time
             model = self.config.get("llm_model_alias", "unknown")
 
             result = {
@@ -91,27 +68,25 @@ class CompletionsHelper:
                 },
             }
 
-            # Log completion (always logs minimal event, debug logs full details)
             my_logging.log_completion_event({
                 "model": model,
                 "latency": latency,
                 "tokens": tokens,
-                "payload_keys": list(payload.keys()) if isinstance(payload, dict) else [],
+                "payload_keys": list(payload.keys()),
+                "normalized_payload": payload,
+                "prompt_messages": messages,
+                "raw_response_dump": self._serialize_for_logging(raw_response),
+                "job_metadata": metadata,
             })
 
             return result
 
         except Exception as exc:
-            my_logging.system_debug(f"Completions error: {exc}")
-            # Log error event
+            my_logging.system_debug(f"Narration stream error: {exc}")
+            if on_chunk:
+                loop.call_soon_threadsafe(on_chunk, "(Narration unavailable)")
             latency = time.time() - start_time
-            my_logging.log_completion_event({
-                "model": self.config.get("llm_model_alias", "unknown"),
-                "latency": latency,
-                "tokens": 0,
-                "error": str(exc),
-            })
-            # Return minimal fallback
+            model = self.config.get("llm_model_alias", "unknown")
             fallback_payload = {
                 "narration": "The game continues...",
                 "game_intent": "Unknown",
@@ -120,145 +95,207 @@ class CompletionsHelper:
                 "hidden_next_command_confidence": 0,
             }
             payload = normalize_ai_payload(fallback_payload, self.response_schema)
+            my_logging.log_completion_event({
+                "model": model,
+                "latency": latency,
+                "tokens": 0,
+                "error": str(exc),
+                "prompt_messages": messages,
+                "raw_response_dump": self._serialize_for_logging(None),
+                "normalized_payload": payload,
+                "job_metadata": metadata,
+            })
             return {
                 "payload": payload,
                 "raw_response": None,
                 "diagnostics": {
                     "latency_seconds": latency,
                     "tokens": 0,
-                    "model": self.config.get("llm_model_alias", "unknown"),
+                    "model": model,
                     "error": str(exc),
                 },
             }
 
-    # -------- Private helpers --------
+    def run(self, job: NarrationJobSpec) -> dict[str, Any]:
+        """Synchronous fallback for legacy callers (non-streaming)."""
+        messages = job.messages
 
-    def _build_system_prompt(self) -> str:
-        """Build system prompt, interpolating schema as JSON string."""
-        template = self.config.get("system_prompt", "")
-        schema_json = json.dumps(self.response_schema)
-        return template.replace("{response_schema}", schema_json)
+        if self.config.get("llm_provider") == "openai":
+            raw_response = self._call_openai(messages)
+        else:
+            raw_response = self._call_foundry(messages)
 
-    def _build_user_prompt(
+        payload = self._parse_response(raw_response)
+        payload = normalize_ai_payload(payload, self.response_schema)
+        latency = 0
+        tokens = self._extract_token_count(raw_response)
+
+        result = {
+            "payload": payload,
+            "raw_response": raw_response,
+            "diagnostics": {
+                "latency_seconds": latency,
+                "tokens": tokens,
+                "model": self.config.get("llm_model_alias", "unknown"),
+            },
+        }
+        return result
+
+    async def _stream_openai(
         self,
-        transcript_chunk: str,
-        context: dict[str, Any] | None = None,
-    ) -> str:
-        """Build user prompt with game log and optional context."""
-        template = self.config.get("user_prompt_template", "")
-        game_log = transcript_chunk
-        
-        # Add context if provided
-        if context:
-            context_str = json.dumps(context, indent=2)
-            game_log = f"Context:\n{context_str}\n\nLatest:\n{transcript_chunk}"
-        
-        return template.replace("{game_log}", game_log)
+        messages: list[dict[str, str]],
+        on_chunk: Callable[[str], None] | None,
+        loop: asyncio.AbstractEventLoop,
+    ) -> tuple[str, Any]:
+        model = self.config.get("llm_model_alias", "gpt-4o")
+        temperature = self.config.get("llm_temperature", 0.7)
+        max_tokens = self.config.get("max_tokens", 1000)
 
-    def _call_openai(self, system_prompt: str, user_prompt: str) -> Any:
-        """Call OpenAI API with schema enforcement."""
-        # Ensure client is OpenAI instance
+        def _job() -> tuple[str, Any]:
+            chunks: list[str] = []
+            stream = self.llm_client.responses.stream(
+                model=model,
+                input={"messages": messages},
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+                max_tokens=max_tokens,
+            )
+            with stream as events:
+                for event in events:
+                    chunk = self._extract_stream_chunk(event)
+                    if chunk:
+                        chunks.append(chunk)
+                        if on_chunk:
+                            loop.call_soon_threadsafe(on_chunk, chunk)
+                final_response = events.get_final_response()
+            return "".join(chunks), final_response
+
+        return await asyncio.to_thread(_job)
+
+    async def _stream_foundry(
+        self,
+        messages: list[dict[str, str]],
+        on_chunk: Callable[[str], None] | None,
+        loop: asyncio.AbstractEventLoop,
+    ) -> tuple[str, Any]:
+        def _job() -> tuple[str, Any]:
+            response = self._call_foundry(messages)
+            payload = self._parse_response(response)
+            narration = payload.get("narration", "")
+            if narration and on_chunk:
+                loop.call_soon_threadsafe(on_chunk, narration)
+            return narration, response
+
+        return await asyncio.to_thread(_job)
+
+    def _call_openai(self, messages: list[dict[str, str]]) -> Any:
         if not isinstance(self.llm_client, OpenAI):
             raise ValueError("OpenAI provider requires OpenAI client instance")
 
-        # For now, use regular chat completion without strict schema
-        # (strict schema requires pydantic model, which is complex to generate)
-        response = self.llm_client.chat.completions.create(
+        return self.llm_client.chat.completions.create(
             model=self.config.get("llm_model_alias", "gpt-4"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=self.config.get("llm_temperature", 0.7),
             max_tokens=self.config.get("max_tokens", 1000),
         )
-        return response
 
-    def _call_foundry(self, system_prompt: str, user_prompt: str) -> Any:
-        """Call Foundry local LLM with schema enforcement."""
-        # Foundry local API: chat endpoint with schema parameter
-        response = self.llm_client.chat(
+    def _call_foundry(self, messages: list[dict[str, str]]) -> Any:
+        return self.llm_client.chat(
             model=self.config.get("llm_model_alias", "Phi-3.5-mini-instruct-cuda-gpu"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            schema=self.response_schema,
+            messages=messages,
             temperature=self.config.get("llm_temperature", 0.7),
             max_tokens=self.config.get("max_tokens", 1000),
         )
-        return response
 
     def _parse_response(self, raw_response: Any) -> dict[str, Any]:
-        """
-        Parse LLM response into validated JSON dict.
-        
-        Handles:
-        - Direct JSON (OpenAI with schema)
-        - JSON in code fences (fallback)
-        - Raw JSON string
-        """
         if raw_response is None:
             return {"narration": "Error: no response from LLM"}
 
-        # Try to extract JSON content
-        content = None
         if hasattr(raw_response, "choices") and raw_response.choices:
-            # OpenAI format
             choice = raw_response.choices[0]
             if hasattr(choice, "message"):
-                content = choice.message.content
-            elif hasattr(choice, "parsed"):
-                # Already parsed by OpenAI
-                if hasattr(choice.parsed, "model_dump"):
-                    return choice.parsed.model_dump()
-                else:
-                    return dict(choice.parsed) if choice.parsed else {}
-        elif isinstance(raw_response, dict):
-            # Foundry might return dict directly
+                return {"narration": choice.message.content}
+            if hasattr(choice, "parsed") and hasattr(choice.parsed, "model_dump"):
+                return choice.parsed.model_dump()
+        if isinstance(raw_response, dict):
             return raw_response
-        elif hasattr(raw_response, "content"):
-            # Direct content attribute
-            content = raw_response.content
+        if hasattr(raw_response, "content"):
+            return {"narration": str(raw_response.content)}
+        return {"narration": "Error: unknown response format"}
 
-        if not content:
-            return {"narration": "Error: no content in response"}
+    def _extract_stream_chunk(self, event: Any) -> str | None:
+        if event is None:
+            return None
+        if isinstance(event, dict):
+            delta = event.get("delta")
+            text = self._flatten_delta(delta)
+            if text:
+                return text
+        if hasattr(event, "delta"):
+            text = self._flatten_delta(event.delta)
+            if text:
+                return text
+        if hasattr(event, "content"):
+            return str(event.content)
+        return None
 
-        # Try to parse as JSON
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            pass
-
-        # Try to extract JSON from code fences
-        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        # Fallback: return raw content as narration
-        my_logging.system_debug(f"Failed to parse JSON response: {content[:200]}")
-        return {"narration": content[:500]}
+    def _flatten_delta(self, delta: Any) -> str | None:
+        if delta is None:
+            return None
+        if isinstance(delta, str):
+            return delta
+        if isinstance(delta, list):
+            return "".join(str(item) for item in delta)
+        if isinstance(delta, dict):
+            texts: list[str] = []
+            for value in delta.values():
+                if isinstance(value, str):
+                    texts.append(value)
+            return "".join(texts) if texts else None
+        if hasattr(delta, "text"):
+            return str(getattr(delta, "text"))
+        if hasattr(delta, "output_text"):
+            return str(getattr(delta, "output_text"))
+        return None
 
     def _extract_token_count(self, raw_response: Any) -> int:
-        """Extract token count from response."""
         if raw_response is None:
             return 0
-
-        # OpenAI format
         if hasattr(raw_response, "usage"):
-            if hasattr(raw_response.usage, "total_tokens"):
-                return raw_response.usage.total_tokens
-
-        # Foundry might have different format
+            usage = raw_response.usage
+            if hasattr(usage, "total_tokens"):
+                return usage.total_tokens
         if isinstance(raw_response, dict) and "usage" in raw_response:
             usage = raw_response["usage"]
             if isinstance(usage, dict):
                 return usage.get("total_tokens", 0)
-
         return 0
 
+    def _serialize_for_logging(self, raw_response: Any) -> Any:
+        if raw_response is None:
+            return None
+        if isinstance(raw_response, (str, int, float, bool)):
+            return raw_response
+        if isinstance(raw_response, (list, dict)):
+            return raw_response
+        if hasattr(raw_response, "model_dump"):
+            try:
+                return raw_response.model_dump()
+            except Exception:
+                pass
+        if hasattr(raw_response, "dict"):
+            try:
+                return raw_response.dict()
+            except Exception:
+                pass
+        if hasattr(raw_response, "__dict__"):
+            try:
+                return {
+                    key: str(value)
+                    for key, value in raw_response.__dict__.items()
+                }
+            except Exception:
+                pass
+        return repr(raw_response)
 
-__all__ = ["CompletionsHelper"]
+

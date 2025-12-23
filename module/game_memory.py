@@ -719,18 +719,23 @@ class GameMemoryStore:
         all_npcs = list(set().union(*(s.npcs for s in self._scenes.values())))
         all_items = list(set().union(*(s.scene_items for s in self._scenes.values())))
         
+        current_scene_payload = {
+            "room_name": current_scene.room_name,
+            "description_lines": list(current_scene.description_lines),
+            "scene_items": list(current_scene.scene_items),
+            "current_items": list(current_scene.current_items),
+            "npcs": list(current_scene.npcs),
+            "visit_count": current_scene.visit_count,
+            "narrations": list(current_scene.narrations),
+            "action_records": [record.to_dict() for record in current_scene.action_records],
+        }
+
+        recent_scene_summaries = self._build_recent_scene_summaries(current_scene.room_name)
+
         return {
             "turn_count": self._turn_count,
             "current_room": self._current_room,
-            "current_scene": {
-                "room_name": current_scene.room_name,
-                "description": "\n".join(current_scene.description_lines[-3:]),  # Last 3 lines
-                "visible_items": current_scene.scene_items,
-                "current_items": current_scene.current_items,
-                "npcs": current_scene.npcs,
-                "visit_count": current_scene.visit_count,
-                "recent_narrations": current_scene.narrations[-2:],  # Last 2 narrations
-            },
+            "current_scene": current_scene_payload,
             "player_state": {
                 "inventory": self._player_inventory,
                 "score": self._player_score,
@@ -745,7 +750,28 @@ class GameMemoryStore:
                 "total_turns": self._turn_count,
                 "scenes_visited": [s.room_name for s in self._scenes.values()],
             },
+            "recent_scene_summaries": recent_scene_summaries,
         }
+
+    def _build_recent_scene_summaries(self, current_room: str) -> list[dict[str, Any]]:
+        sorted_scenes = sorted(
+            (scene for scene in self._scenes.values() if scene.room_name != current_room),
+            key=lambda s: s.last_visit_turn or -1,
+            reverse=True,
+        )
+        summaries: list[dict[str, Any]] = []
+        for scene in sorted_scenes:
+            summaries.append(
+                {
+                    "room_name": scene.room_name,
+                    "description_lines": list(scene.description_lines),
+                    "scene_items": list(scene.scene_items),
+                    "visit_count": scene.visit_count,
+                    "last_visit_turn": scene.last_visit_turn,
+                    "narrations": list(scene.narrations),
+                }
+            )
+        return summaries
 
     def reset(self) -> None:
         """Clear all memory for session restart or player rename."""

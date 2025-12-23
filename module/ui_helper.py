@@ -94,7 +94,7 @@ class TranscriptLog(Static):
 
     def __init__(self) -> None:
         super().__init__()
-        self._log = RichLog(markup=True, highlight=False)
+        self._log = RichLog(markup=True, highlight=False, wrap=True)
 
     def compose(self) -> ComposeResult:
         yield self._log
@@ -122,7 +122,7 @@ class NarrationPanel(Static):
 
     def __init__(self) -> None:
         super().__init__()
-        self._narration_log = RichLog(markup=True, highlight=False)
+        self._narration_log = RichLog(markup=True, highlight=False, wrap=True)
 
     def compose(self) -> ComposeResult:
         yield self._narration_log
