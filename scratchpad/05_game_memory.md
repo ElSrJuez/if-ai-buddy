@@ -1,5 +1,7 @@
 # Game Memory Module
 
+> **Schema Alignment Reminder:** The authoritative contract for engine turns and scene persistence lives in `config/game_engine_schema.json`. The TinyDB helpers do not enforce this schema at runtime, so every architectural or implementation change **must be cross-checked against that file** before code is written.
+
 - Initializes and incrementally builds memory structures reflecting game meta-progress.
 - Tracks player sessions, using default or updated player names.
 - Stores persistent game object memory and meta-progress using TinyDB.

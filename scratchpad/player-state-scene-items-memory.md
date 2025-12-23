@@ -43,3 +43,8 @@ Capture the documented agreement that the memory layer must reflect both scene-l
 2. Enhance `scene_actions` to note when a command impacts visible items, and tap that signal to refresh `current_items` if necessary.
 3. Verify the JSON schema (config/game_engine_schema.json) is extended if we start persisting the inventory snapshot as part of the `EngineTurn`-like record or a new memory event.
 4. Update docs or tests that display the Items tree so they rely on the new player inventory plumbing rather than derived heuristics.
+
+## TODO · Schema Alignment Gaps
+- [ ] **P0 – Emit `SceneEnvelope` payloads**: The runtime still produces/consumes bare `EngineTurn` objects (see `GameAPI` + `EngineFacts`), but the schema now expects a `{ scene, engine_turn }` envelope. Update the controller/serialization path so every turn includes the aggregated scene block alongside the raw engine data.
+- [ ] **P0 – Provide `engine_turn.player_state`**: `score`, `moves`, and `inventory` remain top-level fields in `EngineFacts` and are not serialized under a `player_state` object as required by the new schema. Restructure the heuristics output and downstream consumers so player-facing data is grouped correctly and inventory lives inside `player_state`.
+- [ ] **P1 – Persist player inventory snapshot**: GameMemoryStore only tracks `scene.current_items` (room objects) and never stores a global player-inventory record, so TinyDB/JSONL cannot satisfy the schema’s player-state guarantee. Add a persisted `player_inventory` (with logging) that mirrors `player_state.inventory` and expose it via `get_context_for_prompt()`.
