@@ -3,9 +3,9 @@
     "1": {
       "key": "player_state",
       "inventory": [],
-      "moves": 3,
+      "moves": 1,
       "score": 0,
-      "last_updated_turn": 4
+      "last_updated_turn": 2
     }
   },
   "_default": {
@@ -13,9 +13,7 @@
       "room_name": "West of House",
       "description_lines": [
         "ZORK I: The Great Underground Empire Infocom interactive fiction - a fantasy story Copyright (c) 1981, 1982, 1983, 1984, 1985, 1986 Infocom, Inc. All rights reserved. ZORK is a registered trademark of Infocom, Inc. Release 119 / Serial number 880429",
-        "The small mailbox is closed.",
-        "Opening the small mailbox reveals a leaflet.",
-        "(Taken) \"WELCOME TO ZORK!"
+        "Goodbye."
       ],
       "scene_items": [
         "a small mailbox here"
@@ -25,9 +23,7 @@
       ],
       "scene_actions": [
         "T0001: __start__ -> ZORK I: The Great Underground Empire Infocom interactive fiction - a fantasy story Copyright (c) 1981, 1982, 1983, 1984, 1985, 1986 Infocom, Inc. All rights reserved. ZORK is a registered trademark of Infocom, Inc. Release 119 / Serial number 880429",
-        "T0002: look at mailbox -> The small mailbox is closed.",
-        "T0003: open mailbox -> Opening the small mailbox reveals a leaflet.",
-        "T0004: read leaflet -> (Taken) \"WELCOME TO ZORK!"
+        "T0002: hello -> Goodbye."
       ],
       "action_records": [
         {
@@ -40,40 +36,21 @@
         },
         {
           "turn": 2,
-          "command": "look at mailbox",
-          "result": "The small mailbox is closed.",
-          "category": "world_object_interaction",
-          "verb": "look",
-          "target_item": "at mailbox"
-        },
-        {
-          "turn": 3,
-          "command": "open mailbox",
-          "result": "Opening the small mailbox reveals a leaflet.",
-          "category": "world_object_interaction",
-          "verb": "open",
-          "target_item": "mailbox"
-        },
-        {
-          "turn": 4,
-          "command": "read leaflet",
-          "result": "(Taken) \"WELCOME TO ZORK!",
-          "category": "world_object_interaction",
-          "verb": "read",
-          "target_item": "leaflet"
+          "command": "hello",
+          "result": "Goodbye.",
+          "category": "generic_interaction",
+          "verb": "hello",
+          "target_item": null
         }
       ],
       "scene_intro_collection": [],
       "npcs": [],
       "narrations": [
-        "You notice a small mailbox standing solemnly in the open field west of the white house. (Suggestion: Investigate the mailbox.)",
-        "You carefully approach the small mailbox, noticing its closed state. (Suggestion: Open the mailbox.)",
-        "You unfold the leaflet, discovering a cryptic message scribbled on it. (Suggestion: Read the message carefully.)",
-        "You read the cryptic welcome message, feeling a rush of excitement for the adventure ahead. Zork'dicts await. (Suggestion: Decide your next move.)"
+        "The game continues..."
       ],
-      "visit_count": 4,
+      "visit_count": 2,
       "first_visit_turn": 1,
-      "last_visit_turn": 4
+      "last_visit_turn": 2
     }
   }
 }

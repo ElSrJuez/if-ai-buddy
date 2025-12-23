@@ -113,7 +113,7 @@ class GameController:
             }
 
         self._completions = CompletionsHelper(self.config, schema)
-            self._narration_builder = NarrationJobBuilder(self.config)
+        self._narration_builder = NarrationJobBuilder(self.config)
         self._narration_tasks: set[asyncio.Task[Any]] = set()
         self._active_narration_jobs = 0
 
@@ -228,12 +228,12 @@ class GameController:
             narration_started = False
             if session.intro_text:
                 context = self._memory.get_context_for_prompt()
-                    job_spec = self._narration_builder.build_job(
-                        memory_context=context,
-                        trigger="init",
-                        latest_transcript=session.intro_text,
-                    )
-                    self._schedule_narration_job(job_spec, self._room)
+                job_spec = self._narration_builder.build_job(
+                    memory_context=context,
+                    trigger="init",
+                    latest_transcript=session.intro_text,
+                )
+                self._schedule_narration_job(job_spec, self._room)
                 narration_started = True
 
             self._set_engine_status(EngineStatus.READY)
@@ -303,12 +303,12 @@ class GameController:
             )
 
             context = self._memory.get_context_for_prompt()
-                job_spec = self._narration_builder.build_job(
-                    memory_context=context,
-                    trigger="turn",
-                    latest_transcript=transcript,
-                )
-                self._schedule_narration_job(job_spec, self._room)
+            job_spec = self._narration_builder.build_job(
+                memory_context=context,
+                trigger="turn",
+                latest_transcript=transcript,
+            )
+            self._schedule_narration_job(job_spec, self._room)
 
             self._set_engine_status(EngineStatus.READY)
 
