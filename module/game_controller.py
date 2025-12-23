@@ -20,6 +20,7 @@ from module.completions_helper import CompletionsHelper
 from module.game_api import GameAPI
 from module.rest_helper import DfrotzClient
 from module.game_engine_heuristics import parse_engine_facts
+from module.config_registry import resolve_template_path
 from module.game_memory import GameMemoryStore
 from module.ui_helper import (
     AIStatus,
@@ -36,12 +37,18 @@ class ControllerSettings:
     default_game: str
     dfrotz_base_url: str
     ai_schema_path: str
+    memory_db_path_template: str
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "ControllerSettings":
         missing = [
             key
-            for key in ("player_name", "default_game", "dfrotz_base_url")
+            for key in (
+                "player_name",
+                "default_game",
+                "dfrotz_base_url",
+                "memory_db_path_template",
+            )
             if key not in config
         ]
         if missing:
@@ -59,6 +66,7 @@ class ControllerSettings:
             default_game=str(config["default_game"] or ""),
             dfrotz_base_url=str(config["dfrotz_base_url"]),
             ai_schema_path=str(schema_path),
+            memory_db_path_template=str(config["memory_db_path_template"]),
         )
 
 
@@ -72,13 +80,15 @@ class GameController:
         self.config = config
         self.settings = ControllerSettings.from_config(config)
         self._player_name = self.settings.player_name
+        self._project_root = Path(self.config.get("_project_root", Path(__file__).resolve().parents[1]))
 
         # Initialize async helpers
         self._rest_client: DfrotzClient | None = None
         self._game_api: GameAPI | None = None
 
         # Initialize memory store (persisted to disk)
-        self._memory = GameMemoryStore(self._player_name)
+        memory_db_path = self._resolve_memory_db_path(self._player_name)
+        self._memory = GameMemoryStore(self._player_name, memory_db_path)
         
         # Initialize completions helper with injected LLM client
         schema_path = Path(self.settings.ai_schema_path)
@@ -344,7 +354,8 @@ class GameController:
         # Close old memory and create new player-scoped memory
         try:
             self._memory.close()
-            self._memory = GameMemoryStore(new_name)
+            memory_db_path = self._resolve_memory_db_path(new_name)
+            self._memory = GameMemoryStore(new_name, memory_db_path)
         except Exception as exc:
             self._player_name = old_name
             my_logging.system_warn(f"Failed to reset memory for new player: {exc}")
@@ -369,6 +380,14 @@ class GameController:
         self._app.update_status(self._status)
         self._app.add_hint(f"Player renamed to {new_name}. Restarting session...")
         self._initialize_session()
+
+    def _resolve_memory_db_path(self, player_name: str) -> Path:
+        return resolve_template_path(
+            self.config,
+            "memory_db_path_template",
+            {"player": player_name},
+            project_root=self._project_root,
+        )
 
     # ------------------------------------------------------------------
     # Status helpers

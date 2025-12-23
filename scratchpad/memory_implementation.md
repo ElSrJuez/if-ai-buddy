@@ -43,3 +43,8 @@
 - **Aggregate, don't distribute:** `Scene` collects and deduplicates; don't scatter logic across modules.
 - **DRY:** Use facts as parsed by heuristics, don't re-parse in memory layer.
 - **Audit:** Log every state change via `my_logging` so transitions are traceable.
+
+## Async Enrichment Reminder
+
+- Memory enrichment is an advisory background job that runs after heuristics record a turn. It receives the parsed scene facts, may emit confidence-scored suggestions or inferred entities, and never blocks the prompt preparation for the next turn.
+- Enrichments are keyed to a specific turn, so if a new turn arrives before enrichment completes, the late job can safely log its outcome without mutating canonical memory or delaying gameplay.

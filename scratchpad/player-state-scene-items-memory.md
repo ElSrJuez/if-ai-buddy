@@ -36,6 +36,10 @@ Capture the documented agreement that the memory layer must reflect both scene-l
 - Every change to `current_items`, `scene_items`, and `player inventory` must emit a `my_logging.log_state_change` entry so we can replay the timeline.
 - Scene-level updates remain purely additive/deduplicative; the only mutation path for these lists is through the schema-derived heuristics or the explicit action-triggered refresh described above.
 
+## Advisory LLM Enrichment
+- LLM enrichment jobs annotate scenes with additional inference fields (e.g., inferred motives, thematic tags, confidence scores) but do so asynchronously. Each enrichment result is tied to the turn it references and may arrive only after subsequent turns, so downstream consumers must treat those annotations as optional, late-arriving hints rather than overwriting the canonical memory state.
+- If an enrichment job is skipped or fails, the player state and scene items remain authoritative—this is the expected behavior. Enrichments simply add more context when they complete, without introducing blocking waits.
+
 ## Next Steps
 1. Implement the inventory snapshot storage and logging in `GameMemoryStore`.
 2. Enhance `scene_actions` to note when a command impacts visible items, and tap that signal to refresh `current_items` if necessary. ✅ (ActionRecord-driven updates now perform this deterministically.)

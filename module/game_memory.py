@@ -188,17 +188,14 @@ class GameMemoryStore:
         "search",
     }
 
-    def __init__(self, player_name: str, db_path: str | None = None) -> None:
-        """Initialize the memory store with optional persistent DB.
+    def __init__(self, player_name: str, db_path: str | Path) -> None:
+        """Initialize the memory store with a configured persistent DB path.
         
         Args:
             player_name: Player identifier for logging and context.
-            db_path: Path to TinyDB file. If None, uses player-scoped default.
+            db_path: Path to TinyDB file (no fallback allowed).
         """
         self.player_name = player_name
-        
-        if db_path is None:
-            db_path = f"log/{player_name}_memory.json"
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 

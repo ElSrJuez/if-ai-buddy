@@ -21,7 +21,7 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
     _config.clear()
     _config.update(data)
     apply_aliases(_config)
-    validate_config(_config, sections=("controller", "llm", "logging", "schema"))
+    validate_config(_config, sections=("controller", "llm", "logging", "persistence", "schema"))
     _config["_project_root"] = str(_PROJECT_ROOT)
     _config["_config_path"] = str(path)
     _normalize_schema_paths(_config)

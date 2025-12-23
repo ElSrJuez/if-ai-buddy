@@ -24,25 +24,25 @@ This creates significant architectural gaps between current docs and desired beh
 
 #### 1. **Dual LLM Service Architecture Not Documented**
 - Current docs (01_objectives_and_meta.md) treat "LLM" as a monolithic narrator.
-- No mention of **memory enrichment** as a separate, synchronous task per turn.
+- No mention of **memory enrichment** as a separate, **asynchronous** worker triggered on each completed engine turn.
 - No mention of **async narration** running in parallel/background.
 - Controller doesn't distinguish these two responsibilities.
 
-**Impact:** Code will conflate schema enforcement (memory layer) with creative inference (narration), causing bottlenecks and confusion about blocking vs. non-blocking.
+**Impact:** Without explicit separation, the codebase will keep drifting toward a single “do everything” LLM call, which increases latency pressure and blurs which outputs are authoritative vs. advisory.
 
 #### 2. **Async/Concurrency Model Undefined**
 - README and 01_objectives mention "non-duplicit output" and "duplication filter" but don't explain how LLM calls happen asynchronously.
 - GameController uses `asyncio` stubs but doesn't define the event loop structure or how narration runs in parallel.
 - No scheduler for "idle" LLM triggers (e.g., "generate ambient commentary when the player is idle").
 
-**Impact:** TUI will block waiting for narration, defeating the "non-blocking" goal. Idle scheduling logic won't exist.
+**Impact:** The project risks reintroducing “LLM blocks gameplay” behavior (or race-y UI updates) because there is no documented contract for queues, backpressure, cancellation, or how/when results are surfaced.
 
 #### 3. **Memory Enrichment vs. Narration Conflated**
-- 01_objectives says "Episodic Memory" and "In-Game State Memory" but doesn't say which LLM service populates them.
-- Current `CompletionsHelper.run()` is called once per turn with a generic `context` dict.
-- No schema for "what memory enrichment should produce" vs. "what narration should produce."
+  - 01_objectives says "Episodic Memory" and "In-Game State Memory" but treats them as synchronous outputs of the same LLM call.
+  - Memory enrichment must be async (like narration) but triggered immediately after heuristics complete; it must never block transcript display or prompt delivery.
+  - `CompletionsHelper.run()` currently assumes a single schema; we must split into separate enrichment and narration pipelines, even though both run asynchronously with different triggers.
 
-**Impact:** Will attempt to produce both in one LLM call, forcing a bloated schema and slow iterations. Better to split: fast memory enrichment (schema-strict) + slower narration (creative, optional).
+**Impact:** A single schema/call encourages bloated prompts and ambiguous outputs. We want two pipelines whose outputs have different lifecycles: enrichment is advisory state augmentation; narration is optional UI output.
 
 #### 4. **Response Schema Confusion**
 - `config/response_schema.json` is used for narration output (game_intent, narration, hints).
@@ -58,13 +58,13 @@ This creates significant architectural gaps between current docs and desired beh
   - Or is narration queued/batched?
   - What are the idle trigger rules?
 
-**Impact:** TUI will poll for narration unpredictably. No framework for background scheduler.
+**Impact:** Without explicit triggers and scheduling rules, the system cannot guarantee a responsive UI while also producing timely narration/enrichment. It also becomes impossible to reason about cost/throughput.
 
 #### 6. **No Mention of Non-Blocking Constraints**
 - GameController is designed as a sync TUI app with async helpers, but the LLM loop design doesn't account for "slow inference doesn't block gameplay."
 - 01_objectives emphasizes "Streamed Delivery" and "keep the UI responsive" but doesn't explain how narration streams while the engine is ready for the next turn.
 
-**Impact:** TUI and LLM orchestration will have race conditions or artificial waits.
+**Impact:** The implementation will either (a) block the player while waiting on LLM calls or (b) produce inconsistent output ordering because there is no stated ordering/consistency policy.
 
 ---
 
@@ -72,16 +72,17 @@ This creates significant architectural gaps between current docs and desired beh
 
 ### 01_objectives_and_meta.md
 **Issues:**
-- No distinction between **memory enrichment LLM calls** (fast, schema-strict, per-turn) and **narration LLM calls** (slower, creative, async-optional).
+- No distinction between **memory enrichment LLM calls** (advisory, async-per-turn trigger) and **narration LLM calls** (creative, async, event/idle-triggered).
 - "Narration Layer" is described as a single feature, not as an independent async service.
 - "Episodic Memory" and "In-Game State Memory" described but no mention of which is LLM-derived vs. heuristic-derived.
 - "Streamed Delivery" assumes narration is always requested; no mention of optional narration or idle scheduling.
 
 **Recommendations:**
 - Explicitly separate "Memory Enrichment Service" and "Narration Service" with distinct objectives.
-- Document that memory enrichment is **synchronous, per-turn, must complete before the next prompt**.
-- Document that narration is **asynchronous, optional, triggered by engine/player events or idle schedule**.
+- Document that memory enrichment is **asynchronous and non-blocking**: it starts after heuristics record the turn, but it must not delay transcript rendering or the next command prompt.
+- Document that narration is **asynchronous and optional**, triggered by engine/player/idle events; gameplay must never wait for it.
 - Add "LLM Call Latency Management" as a meta-objective (recognizing LLM is slow, design for non-blocking).
+- Add a short “Consistency Policy” note: heuristic memory is authoritative; LLM enrichments are advisory and may arrive late, be skipped, or be superseded.
 
 ### README.md
 **Issues:**
@@ -90,9 +91,10 @@ This creates significant architectural gaps between current docs and desired beh
 - No mention of memory enrichment as distinct from narration.
 
 **Recommendations:**
-- Add diagram or flowchart showing: Engine → Memory Store → (Memory Enrichment LLM) → (Prompt Builder) → (Narration LLM, async) → UI.
+- Describe the event flow in text (avoid code): engine turn → heuristics memory update → enqueue enrichment job + enqueue narration job → UI streams outputs when ready.
 - Clarify that narration is optional/non-blocking; the game loop does not wait for it.
 - Document the scheduler/event-driven architecture briefly.
+- Document the three triggers explicitly: engine-turn trigger, player-command trigger, idle trigger.
 
 ### 05_game_memory.md & memory_implementation.md
 **Issues:**
@@ -101,8 +103,8 @@ This creates significant architectural gaps between current docs and desired beh
 - Assume all memory is heuristic-parsed; no framework for LLM to suggest corrections or add context.
 
 **Recommendations:**
-- Add section "Memory Enrichment by LLM" explaining what fields/facts are submitted to the memory-enrichment model and how responses are integrated.
-- Document fallback: if memory enrichment fails/times out, proceed with heuristic memory only (non-blocking guarantee).
+- Add section "Memory Enrichment by LLM" explaining (a) what is submitted, (b) what comes back, (c) that the result is advisory and may arrive late.
+- Document that if enrichment fails or is skipped, gameplay proceeds with heuristic memory only (this is the normal, supported path).
 
 ### game_controller.py
 **Issues:**
@@ -112,146 +114,55 @@ This creates significant architectural gaps between current docs and desired beh
 
 **Recommendations:**
 - Define a clear **TurnOrchestrator** or **LLMScheduler** that manages:
-  - Synchronous memory-enrichment call (blocks, completes before next context).
-  - Asynchronous narration call (fire-and-forget, UI streams it).
-  - Idle scheduler (background commentary when player is idle).
+  - Enqueue memory-enrichment work after heuristics complete (non-blocking).
+  - Enqueue narration work after engine/player events and on idle (non-blocking).
+  - Backpressure rules (max queue depth, drop/skip policy, cancellation on new turns).
 
 ---
 
 ## Proposed New Architecture (High-Level)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Game Loop (TUI / Textual Event Loop)                            │
-└────────────────┬──────────────────────────────────────────────┘
-                 │
-         ┌───────▼────────┐
-         │ Engine Turn    │
-         └───────┬────────┘
-                 │
-         ┌───────▼─────────────────────────┐
-         │ GameMemoryStore.record_turn()   │  (Heuristic-based)
-         │ - Parse EngineTurn → Scene      │
-         │ - Update inventory/items        │
-         │ - Log JSONL audit trail         │
-         └───────┬─────────────────────────┘
-                 │
-         ┌───────▼──────────────────────────────┐
-         │ MemoryEnrichmentService.enrich()     │  (Sync, LLM #1)
-         │ - Takes: Scene facts + recent history│
-         │ - Returns: suggested NPC states,    │
-         │   item purposes, theme tags         │
-         │ - Blocks until done (timeout safety) │
-         │ - Updates Scene with enrichments    │
-         └───────┬──────────────────────────────┘
-                 │
-         ┌───────▼───────────────────────────┐
-         │ NarrationScheduler.schedule()      │  (Async, LLM #2)
-         │ - Enqueue narration task if:       │
-         │   - New turn just completed        │
-         │   - Player idle > N seconds        │
-         │   - Narration queue not full       │
-         └───────┬───────────────────────────┘
-                 │
-    ┌────────────┼────────────┐
-    │            │            │
-    ▼            ▼            ▼
-[Narration    [Idle        [Prompt
- Task]        Timer]       Builder]
-    │            │            │
-    └────┬───────┘────────────┘
-         │
-    ┌────▼──────────────────────────┐
-    │ NarrationService.narrate()     │  (Async, LLM #2 call)
-    │ - Takes: context              │
-    │ - Returns: narration chunk     │
-    │ - Streams to UI (non-blocking) │
-    └────┬──────────────────────────┘
-         │
-    ┌────▼──────────────────────────┐
-    │ TUI: Display narration         │
-    └───────────────────────────────┘
-```
+Event flow (conceptual, no code):
+
+1. Engine responds → UI immediately renders transcript.
+2. Heuristics parse + `GameMemoryStore` records the turn (authoritative state).
+3. Two background jobs are *enqueued* (non-blocking):
+   - **Memory enrichment** job (trigger: “turn recorded”).
+   - **Narration** job (trigger: “turn recorded”, plus optional player/idle triggers).
+4. When each job completes, it emits an event to the UI/log:
+   - Memory enrichment updates advisory fields on the current scene (never overwriting authoritative facts without explicit policy).
+   - Narration streams or appends output to the UI.
+
+Key invariants:
+- Gameplay never waits on any LLM job.
+- All LLM outputs are tagged with the turn they refer to; late results may be ignored or appended with that context.
+- Queue/backpressure is explicit (bounded queues, drop/skip rules).
 
 ---
 
 ## Specific Doc Updates Needed
 
 ### 1. **scratchpad/01_objectives_and_meta.md**
-Add new section after "Core Objectives":
+Add a short “LLM Service Roles” section:
 
-```markdown
-### 1a. LLM Service Roles
-
-**Memory Enrichment Service (Synchronous, Per-Turn)**
-- Triggered: After every engine turn, once heuristic memory is recorded.
-- Input: Scene facts, recent action history, known entities.
-- Output: Enriched facts (NPC states, item purposes, location themes, unresolved threads).
-- Constraint: Must complete within timeout (e.g., 5s) or abort gracefully; game does not wait.
-- Schema: Strict JSON with recognized field names, confidence scores.
-
-**Narration Service (Asynchronous, Event-Driven)**
-- Triggered: When new turn available, player idle > N seconds, or on a background schedule.
-- Input: Scene context, enriched facts, recent narrations (dedup).
-- Output: Narrative commentary, optional hints, flavor text.
-- Constraint: Non-blocking; runs in background while game accepts next command.
-- Schema: Looser format (may include streaming markdown, unstructured flavor).
-```
+- **Memory Enrichment Service (async, turn-triggered)**: starts immediately after heuristics record the turn; never blocks transcript rendering or next-command prompt; writes advisory enrichments keyed to a specific turn.
+- **Narration Service (async, event/idle-triggered)**: runs independently and streams/adds narration; may be skipped or delayed; must not block gameplay.
 
 ### 2. **scratchpad/05_game_memory.md**
-Add section "LLM Enrichment":
-
-```markdown
-## LLM-Driven Enrichment (Future)
-
-The Memory Enrichment Service augments Scene objects with:
-- **npc_states**: Inferred emotional state, intentions, last-seen context for each NPC.
-- **item_purposes**: Detected use cases (key, weapon, tool, decoration) for items in scene_items.
-- **location_themes**: Inferred atmosphere/danger/puzzle markers for the room.
-- **unresolved_threads**: Tasks/questions the player left behind.
-
-These fields are optional and do not block the main game loop. If the LLM call times out or fails, gameplay continues with heuristic memory only.
-```
+Add a short “LLM-Driven Enrichment (Future)” section explaining which *advisory* fields may be added to Scene, and that enrichment is opportunistic and may arrive late.
 
 ### 3. **README.md**
-Expand "Architecture & Configuration":
-
-```markdown
-## LLM Layer
-
-Two LLM services run in parallel:
-
-1. **Memory Enrichment** (sync, per-turn)
-   - Enriches Scene facts with NPC states, item purposes, themes.
-   - Blocks briefly; times out safely.
-   - Updated facts improve narration quality.
-
-2. **Narration** (async, event-driven)
-   - Consumes enriched Scene + history.
-   - Runs in background; UI streams output.
-   - Triggered by: engine turns, player idle, background schedule.
-   - Never blocks the game loop.
-```
+Expand “Architecture” with a brief “LLM Layer” subsection describing the two async workers and their triggers, emphasizing that neither blocks gameplay.
 
 ### 4. **scratchpad/player-state-scene-items-memory.md**
-Add note about enrichment:
-
-```markdown
-### LLM Enrichment Interaction
-
-When Memory Enrichment succeeds, it adds optional fields to Scene:
-- `npc_inferences`: Map of NPC name → {mood, last_action, suspected_goal}.
-- `item_inferences`: Map of item name → {likely_purpose, rarity, puzzle_hint}.
-
-These are **advisory only**; heuristic memory remains the source of truth.
-```
+Add a note describing enrichment as advisory, keyed to a turn, and potentially stale if it arrives after additional turns.
 
 ---
 
 ## Code Architecture Implications
 
 ### New Files / Modules Needed
-1. **module/memory_enrichment_service.py** — Synchronous LLM calls to enrich Scene facts.
+1. **module/memory_enrichment_service.py** — Async LLM calls to enrich Scene facts (turn-triggered).
 2. **module/narration_scheduler.py** — Event-driven queue and idle timer for narration tasks.
 3. **module/narration_service.py** — Async LLM calls for narration generation and streaming.
 4. **module/llm_scheduler.py** (or extend game_controller) — Central orchestrator that manages both services.
@@ -270,34 +181,12 @@ These are **advisory only**; heuristic memory remains the source of truth.
 
 ## Non-Blocking Guarantee Mechanism
 
-```python
-class MemoryEnrichmentService:
-    async def enrich_async(self, scene: Scene) -> Scene:
-        """Attempt enrichment; abort gracefully on timeout."""
-        try:
-            result = await asyncio.wait_for(
-                self._call_llm(scene),
-                timeout=5.0
-            )
-            scene.enrichment = result
-        except asyncio.TimeoutError:
-            my_logging.system_warn("Memory enrichment timed out, proceeding with heuristic memory")
-            scene.enrichment = None
-        return scene
-```
+Documented policy (no code):
 
-Game always waits for memory enrichment (guarantees state is fresh). But narration is queued:
-
-```python
-class NarrationScheduler:
-    async def schedule_narration(self, scene: Scene, reason: str) -> None:
-        """Queue narration task; never blocks game loop."""
-        if len(self._queue) < self._max_queue_size:
-            self._queue.append((scene, reason))
-            asyncio.create_task(self._process_next())
-        else:
-            my_logging.debug("Narration queue full, skipping background narration")
-```
+- The UI renders engine output immediately.
+- Memory recording (heuristics + persistence) happens before any LLM work and remains authoritative.
+- Memory enrichment and narration are queued background jobs.
+- Both jobs are bounded by explicit backpressure rules (skip, drop, or cancel) and are keyed to a specific turn so late results can be safely ignored or displayed with the correct context.
 
 ---
 
@@ -305,11 +194,11 @@ class NarrationScheduler:
 
 | Document | Gap | Severity |
 |---|---|---|
-| 01_objectives_and_meta.md | No mention of two LLM services or async narration | **High** |
-| README.md | Architecture section incomplete re: LLM orchestration | **High** |
-| 05_game_memory.md | No framework for LLM enrichment fields | **Medium** |
-| game_controller.py | No LLMScheduler or narration queue | **High** |
-| completions_helper.py | Monolithic; should split enrichment ↔ narration | **High** |
+| 01_objectives_and_meta.md | No mention of two async LLM workers (enrichment + narration) and their triggers | **High** |
+| README.md | Architecture section incomplete re: event triggers, queues, and non-blocking guarantees | **High** |
+| 05_game_memory.md | Missing definition of advisory enrichment outputs and integration policy | **Medium** |
+| game_controller.py | No LLMScheduler (enqueueing, backpressure, idle trigger) | **High** |
+| completions_helper.py | Monolithic; must split enrichment ↔ narration schemas and execution paths | **High** |
 
 ---
 
@@ -317,8 +206,8 @@ class NarrationScheduler:
 
 1. **Finalize LLM Schema**: Define strict JSON schemas for enrichment and narration separately.
 2. **Design Idle Scheduler**: Specify rules for "player idle > N seconds → generate ambient narration."
-3. **Implement MemoryEnrichmentService**: Sync LLM calls with timeout safety.
-4. **Implement NarrationScheduler + NarrationService**: Async queue and background streaming.
-5. **Update GameController**: Wire turn events → enrichment → narration queue.
+3. **Implement MemoryEnrichmentService (async)**: Enqueue enrichment on “turn recorded”; ensure bounded queue, cancellation/skip rules, and per-turn correlation.
+4. **Implement NarrationScheduler + NarrationService (async)**: Enqueue on turn/player/idle triggers; ensure bounded queue, streaming-to-UI, and duplication controls.
+5. **Update GameController**: Wire engine-turn events to immediate UI display + heuristic memory recording, then enqueue both LLM jobs without blocking input.
 6. **Update all design docs** with the recommendations above.
 

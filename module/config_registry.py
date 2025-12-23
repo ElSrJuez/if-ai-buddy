@@ -11,6 +11,7 @@ __all__ = [
     "required_keys",
     "validate_config",
     "resolve_path",
+    "resolve_template_path",
 ]
 
 
@@ -37,6 +38,9 @@ SECTION_KEYS: dict[str, set[str]] = {
         "game_engine_jsonl_filename_template",
         "llm_completion_jsonl_filename_template",
         "loglevel",
+    },
+    "persistence": {
+        "memory_db_path_template",
     },
     "schema": {
         "game_engine_schema_path",
@@ -93,6 +97,29 @@ def resolve_path(config: Mapping[str, object], key: str, *, project_root: Path |
     if key not in config:
         raise ConfigValidationError(f"Missing required config key '{key}'")
     path = Path(str(config[key]))
+    if path.is_absolute() or project_root is None:
+        return path
+    return project_root / path
+
+
+def resolve_template_path(
+    config: Mapping[str, object],
+    key: str,
+    context: Mapping[str, object],
+    *,
+    project_root: Path | None = None,
+) -> Path:
+    """Resolve a templated path from config (e.g., 'log/{player}.json')."""
+    if key not in config:
+        raise ConfigValidationError(f"Missing required config key '{key}'")
+    template = str(config[key])
+    try:
+        formatted = template.format(**context)
+    except KeyError as exc:
+        raise ConfigValidationError(
+            f"Failed to format template '{template}': missing placeholder {exc}"
+        )
+    path = Path(formatted)
     if path.is_absolute() or project_root is None:
         return path
     return project_root / path

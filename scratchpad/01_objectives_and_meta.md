@@ -71,6 +71,15 @@ A concise, generalized blueprint for the project’s direction. Emphasis on dura
 
 ---
 
+## 10. LLM Service Roles & Async Guarantees
+
+- **Memory Enrichment Service (async, turn-triggered):** Runs immediately after heuristics record an engine turn, enriches the authoritative scene/state with inference cues (entities, inferred relationships, confidence signals) marked as advisory. It never blocks transcript rendering, prompt building for the next turn, or any UI response.
+- **Narration Service (async, event/idle-triggered):** Enqueues creative commentary jobs keyed to engine turns, player commands, or idle timers. Each job streams or appends narration when ready; the game loop continues regardless of whether the job completes.
+- **LLM Call Latency Management:** Treat every LLM job as a background worker subject to bounded queues, drop/skip policies, and explicit cancellation when newer turns supersede pending work. Document that UI responsiveness is maintained by never waiting synchronously for enrichment or narration.
+- **Consistency Policy:** Heuristic memory remains authoritative. LLM enrichments are advisory, tagged with their originating turn, and may arrive after subsequent turns. If an enrichment is late, it should either be ignored or displayed with a clear “late advisory” flag instead of overwriting canonical facts.
+
+---
+
 ## 5. Narrative Quality Heuristics
 
 - **Additive, not Redundant:** Narration should build on the game output—clarify, contextualize, and motivate—never echo verbatim unless for emphasis.
