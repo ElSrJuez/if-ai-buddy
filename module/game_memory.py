@@ -323,18 +323,71 @@ class GameMemoryStore:
             my_logging.log_state_change("current_items", before, after)
 
     @staticmethod
+    def _split_paragraphs(text: str | None) -> list[str]:
+        if not text:
+            return []
+        segments: list[str] = []
+        buffer: list[str] = []
+
+        def flush() -> None:
+            if not buffer:
+                return
+            segments.append(GameMemoryStore._merge_wrapped_lines(buffer))
+            buffer.clear()
+
+        for raw in text.splitlines():
+            if not raw.strip():
+                flush()
+                continue
+            buffer.append(raw.rstrip())
+        flush()
+        return [segment for segment in segments if segment]
+
+    @staticmethod
+    def _merge_wrapped_lines(lines: list[str]) -> str:
+        if not lines:
+            return ""
+        merged = lines[0].strip()
+        for raw in lines[1:]:
+            if raw.startswith(" "):
+                merged += "\n" + raw.rstrip()
+            else:
+                separator = " " if merged and not merged.endswith((" ", "-", "—")) else ""
+                merged += f"{separator}{raw.strip()}"
+        return merged.strip()
+
+    @staticmethod
+    def _extract_transcript_body(transcript: str | None) -> str | None:
+        if not transcript:
+            return None
+        lines = transcript.splitlines()
+        body_lines: list[str] = []
+        header_found = False
+        for line in lines:
+            if not header_found:
+                if "Score:" in line and "Moves:" in line:
+                    header_found = True
+                continue
+            body_lines.append(line)
+        body = "\n".join(body_lines).strip()
+        return body or None
+
+    @staticmethod
     def _summarize_action_result(
         *,
         room_name: str | None,
         previous_room: str | None,
         description: str | None,
+        transcript: str | None,
     ) -> str:
         if room_name and previous_room and room_name != previous_room:
             return room_name
-        if description:
-            first_line = description.split('\n')[0].strip()
-            if first_line:
-                return first_line
+        paragraphs = GameMemoryStore._split_paragraphs(description)
+        if not paragraphs:
+            transcript_body = GameMemoryStore._extract_transcript_body(transcript)
+            paragraphs = GameMemoryStore._split_paragraphs(transcript_body)
+        if paragraphs:
+            return "\n\n".join(paragraphs)
         return "..."
 
     @staticmethod
@@ -567,15 +620,13 @@ class GameMemoryStore:
         self._sync_player_state(facts)
 
         # Accumulate description lines (non-duplicative)
-        if facts.description:
-            for line in facts.description.splitlines():
-                line = line.strip()
-                if line and line not in scene.description_lines:
-                    scene.description_lines.append(line)
-                    my_logging.log_memory_event("description_added", {
-                        "room": room_name,
-                        "line": line[:80],
-                    })
+        for paragraph in self._split_paragraphs(facts.description):
+            if paragraph and paragraph not in scene.description_lines:
+                scene.description_lines.append(paragraph)
+                my_logging.log_memory_event("description_added", {
+                    "room": room_name,
+                    "line": paragraph[:80],
+                })
         
         # Accumulate visible items (non-duplicative)
         if facts.visible_items:
@@ -600,6 +651,7 @@ class GameMemoryStore:
                 room_name=room_name,
                 previous_room=previous_room,
                 description=facts.description,
+                transcript=transcript,
             )
             action_record = self._build_action_record(
                 command=command,
