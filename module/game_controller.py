@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from module import my_logging
-from module.completions_helper import CompletionsHelper
+from module.llm_narration_helper import CompletionsHelper
 from module.game_api import GameAPI
 from module.rest_helper import DfrotzClient
 from module.game_engine_heuristics import parse_engine_facts
