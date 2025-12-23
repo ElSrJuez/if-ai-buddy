@@ -6,6 +6,7 @@ from typing import Any
 
 from module.game_engine_heuristics import (
     EngineMetadata,
+    PlayerStateSnapshot,
     as_dict as facts_as_dict,
     parse_engine_facts,
 )
@@ -32,6 +33,7 @@ class EngineTurn:
     gameException: bool = False
     exceptionMessage: str | None = None
     metadata: EngineMetadata | None = None
+    player_state: PlayerStateSnapshot | None = None
     # metadata such as pid and HTTP status can be added later
 
 class GameAPI:
@@ -94,6 +96,7 @@ class GameAPI:
             gameException=facts.gameException,
             exceptionMessage=facts.exceptionMessage,
             metadata=metadata,
+            player_state=facts.player_state,
         )
 
     async def stop(self) -> None:

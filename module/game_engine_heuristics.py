@@ -13,15 +13,39 @@ class EngineMetadata:
 
 
 @dataclass(frozen=True)
+class PlayerStateSnapshot:
+    inventory: list[str] | None = None
+    score: int | None = None
+    moves: int | None = None
+
+    def to_dict(self) -> dict[str, list[str] | int | None]:
+        return {
+            "inventory": self.inventory,
+            "score": self.score,
+            "moves": self.moves,
+        }
+
+
+@dataclass(frozen=True)
 class EngineFacts:
     room_name: str | None
-    score: int | None
-    moves: int | None
-    inventory: list[str] | None
+    player_state: PlayerStateSnapshot
     visible_items: list[str] | None
     description: str | None
     gameException: bool
     exceptionMessage: str | None
+
+    @property
+    def score(self) -> int | None:  # Back-compat for legacy callers
+        return self.player_state.score
+
+    @property
+    def moves(self) -> int | None:
+        return self.player_state.moves
+
+    @property
+    def inventory(self) -> list[str] | None:
+        return self.player_state.inventory
 
 
 def parse_engine_facts(transcript: str) -> EngineFacts:
@@ -45,11 +69,15 @@ def parse_engine_facts(transcript: str) -> EngineFacts:
     inventory = _extract_inventory(normalized)
     visible_items = _extract_visible_items(normalized)
 
-    return EngineFacts(
-        room_name=room_name,
+    player_state = PlayerStateSnapshot(
+        inventory=inventory,
         score=score,
         moves=moves,
-        inventory=inventory,
+    )
+
+    return EngineFacts(
+        room_name=room_name,
+        player_state=player_state,
         visible_items=visible_items,
         description=description,
         gameException=game_exception,
@@ -142,9 +170,7 @@ def _extract_exception_message(transcript: str) -> str | None:
 def as_dict(facts: EngineFacts) -> dict[str, object | None]:
     return {
         "room_name": facts.room_name,
-        "score": facts.score,
-        "moves": facts.moves,
-        "inventory": facts.inventory,
+        "player_state": facts.player_state.to_dict(),
         "visible_items": facts.visible_items,
         "description": facts.description,
         "gameException": facts.gameException,
@@ -154,6 +180,7 @@ def as_dict(facts: EngineFacts) -> dict[str, object | None]:
 
 __all__ = [
     "EngineMetadata",
+    "PlayerStateSnapshot",
     "EngineFacts",
     "parse_engine_facts",
     "as_dict",

@@ -209,6 +209,7 @@ class GameController:
                 facts,
                 command="__start__",
                 previous_room=None,
+                transcript=session.intro_text,
             )
             self._update_status(moves=self._moves, score=self._score, room=self._room)
             
@@ -273,6 +274,7 @@ class GameController:
                 facts,
                 command=command,
                 previous_room=previous_room,
+                transcript=transcript,
             )
 
             self._update_status(

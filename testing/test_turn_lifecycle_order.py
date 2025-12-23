@@ -32,7 +32,7 @@ class _MemorySpy:
     def __init__(self) -> None:
         self.updated = False
 
-    def update_from_engine_facts(self, facts, *, command=None, previous_room=None) -> None:
+    def update_from_engine_facts(self, facts, *, command=None, previous_room=None, transcript=None) -> None:
         self.updated = True
 
     def get_context_for_prompt(self) -> dict:

@@ -58,6 +58,31 @@ class Scene:
             "last_visit_turn": self.last_visit_turn,
         }
 
+    def to_scene_envelope(self) -> dict[str, Any]:
+        description = "\n".join(self.description_lines) if self.description_lines else None
+        intros = [
+            {
+                "previous_room": intro.previous_room,
+                "move_number": intro.move_number,
+                "command": intro.command,
+            }
+            for intro in self.scene_intro_collection
+        ]
+        return {
+            "room_name": self.room_name,
+            "description": description,
+            "scene_items": self.scene_items,
+            "current_items": self.current_items,
+            "scene_actions": self.scene_actions,
+            "scene_intro_collection": intros,
+            "npcs": self.npcs,
+            "narrations": self.narrations,
+            "visit_count": self.visit_count,
+            "first_visit_turn": self.first_visit_turn,
+            "last_visit_turn": self.last_visit_turn,
+            "visible_items": self.current_items,
+        }
+
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "Scene":
         """Deserialize from TinyDB dict."""
@@ -121,12 +146,17 @@ class GameMemoryStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.db = TinyDB(str(self.db_path), indent=2)
+        self._player_state_table = self.db.table("_player_state")
         self._scenes: dict[str, Scene] = {}
         self._current_room: str | None = None
         self._turn_count: int = 0
+        self._player_inventory: list[str] = []
+        self._player_moves: int | None = None
+        self._player_score: int | None = None
         
         # Load existing scenes from DB
         self._load_scenes()
+        self._load_player_state()
         
         my_logging.system_info(f"GameMemoryStore initialized for {player_name} at {self.db_path}")
 
@@ -140,12 +170,87 @@ class GameMemoryStore:
         except Exception as exc:
             my_logging.system_warn(f"Failed to load scenes from DB: {exc}")
 
+    def _load_player_state(self) -> None:
+        """Load persisted player state snapshot if available."""
+        try:
+            PlayerStateQuery = Query()
+            record = self._player_state_table.get(PlayerStateQuery.key == "player_state")
+            if not record:
+                return
+            inventory = record.get("inventory") or []
+            if isinstance(inventory, list):
+                self._player_inventory = list(inventory)
+            self._player_moves = record.get("moves")
+            self._player_score = record.get("score")
+        except Exception as exc:
+            my_logging.system_warn(f"Failed to load player state: {exc}")
+
+    def _persist_player_state(self) -> None:
+        """Persist current player state snapshot."""
+        try:
+            snapshot = {
+                "key": "player_state",
+                "inventory": self._player_inventory,
+                "moves": self._player_moves,
+                "score": self._player_score,
+                "last_updated_turn": self._turn_count,
+            }
+            PlayerStateQuery = Query()
+            self._player_state_table.upsert(snapshot, PlayerStateQuery.key == "player_state")
+        except Exception as exc:
+            my_logging.system_warn(f"Failed to persist player state: {exc}")
+
+    def _sync_player_state(self, facts: EngineFacts) -> None:
+        snapshot = facts.player_state
+        if not snapshot:
+            return
+        inventory_changed = False
+        moves_changed = False
+        score_changed = False
+        if snapshot.inventory is not None:
+            normalized_inventory = list(snapshot.inventory)
+            if normalized_inventory != self._player_inventory:
+                my_logging.log_state_change("player_inventory", self._player_inventory, normalized_inventory)
+                self._player_inventory = normalized_inventory
+                inventory_changed = True
+        if snapshot.moves is not None and snapshot.moves != self._player_moves:
+            self._player_moves = snapshot.moves
+            moves_changed = True
+        if snapshot.score is not None and snapshot.score != self._player_score:
+            self._player_score = snapshot.score
+            score_changed = True
+        if inventory_changed or moves_changed or score_changed:
+            self._persist_player_state()
+
+    def _build_scene_envelope(
+        self,
+        *,
+        scene: Scene,
+        facts: EngineFacts,
+        command: str | None,
+        transcript: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "scene": scene.to_scene_envelope(),
+            "engine_turn": {
+                "command": command or "unknown",
+                "transcript": transcript or "",
+                "room_name": facts.room_name,
+                "description": facts.description,
+                "visible_items": facts.visible_items,
+                "player_state": facts.player_state.to_dict(),
+                "gameException": facts.gameException,
+                "exceptionMessage": facts.exceptionMessage,
+            },
+        }
+
     def update_from_engine_facts(
         self,
         facts: EngineFacts,
         *,
         command: str | None = None,
         previous_room: str | None = None,
+        transcript: str | None = None,
     ) -> None:
         """Update memory based on parsed engine facts from a turn.
         
@@ -153,6 +258,7 @@ class GameMemoryStore:
             facts: Parsed `EngineFacts` from `parse_engine_facts()`.
             command: Optional player command that led to this state.
             previous_room: Optional room name before this turn.
+            transcript: Raw engine transcript for envelope persistence.
         """
         self._turn_count += 1
 
@@ -210,6 +316,9 @@ class GameMemoryStore:
                 "command": command,
             })
         
+        # Synchronize global player state snapshot
+        self._sync_player_state(facts)
+
         # Accumulate description lines (non-duplicative)
         if facts.description:
             for line in facts.description.splitlines():
@@ -260,6 +369,15 @@ class GameMemoryStore:
         self._current_room = room_name
         self._persist_scene(scene)
 
+        if transcript:
+            envelope = self._build_scene_envelope(
+                scene=scene,
+                facts=facts,
+                command=command,
+                transcript=transcript,
+            )
+            my_logging.log_memory_event("scene_envelope", envelope)
+
         # Transaction envelope: emitted once per turn so the memory JSONL reads as a timeline.
         my_logging.log_memory_event("turn_recorded", turn_envelope)
 
@@ -298,10 +416,15 @@ class GameMemoryStore:
                 "room_name": current_scene.room_name,
                 "description": "\n".join(current_scene.description_lines[-3:]),  # Last 3 lines
                 "visible_items": current_scene.scene_items,
-                "current_inventory": current_scene.current_items,
+                "current_items": current_scene.current_items,
                 "npcs": current_scene.npcs,
                 "visit_count": current_scene.visit_count,
                 "recent_narrations": current_scene.narrations[-2:],  # Last 2 narrations
+            },
+            "player_state": {
+                "inventory": self._player_inventory,
+                "score": self._player_score,
+                "moves": self._player_moves,
             },
             "persistent_facts": {
                 "all_known_npcs": all_npcs,
@@ -318,9 +441,13 @@ class GameMemoryStore:
         """Clear all memory for session restart or player rename."""
         try:
             self.db.truncate()
+            self._player_state_table.truncate()
             self._scenes.clear()
             self._current_room = None
             self._turn_count = 0
+            self._player_inventory = []
+            self._player_moves = None
+            self._player_score = None
             my_logging.log_memory_event("reset", {"player": self.player_name})
             my_logging.system_info(f"Memory reset for {self.player_name}")
         except Exception as exc:

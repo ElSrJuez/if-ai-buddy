@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import httpx
@@ -121,7 +121,7 @@ class DfrotzClient:
 
         # Deterministic JSON only for game-engine endpoints
         parsed = response.json()
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         # Log raw response JSON (always logs minimal, debug logs full)
         log_rest_event({
             "stage": "response",

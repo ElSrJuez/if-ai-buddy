@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 _config: dict[str, Any] = {}
@@ -258,7 +258,7 @@ def _memory_log_json(data: dict) -> None:
 
 
 def _timestamp() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 # ------ Two-tier logging: Base (always) + Debug (when enabled) ------
