@@ -21,7 +21,7 @@ Fields:
 - `sceneItems`:  an accumulative, non-duplicative list of seen in-game objects
 - `currentItems`: list of current in-game objects as it last ended/resulted within this Scene
 - `sceneActions`: an accumulative, non-duplicative list of commands and results occuring in this Scene. For example on room changing actions, should include the command/way of exit
-- `actionRecords`: structured history of every player command observed in this scene. Each record contains the turn number, command text, normalized result summary, category (`movement` or `interaction`), parsed verb, and an optional `target_item`. The TinyDB store uses these canonical records to drive downstream world-state and inventory updates when the engine transcript does not emit fresh `visible_items` or `player_state.inventory` data.
+- `actionRecords`: structured history of every player command observed in this scene. Each record contains the turn number, command text, normalized result summary, category (`movement`, `item_interaction`, `world_object_interaction`, or `generic_interaction`), parsed verb, and an optional `target_item`. The TinyDB store uses these canonical records to drive downstream world-state and inventory updates when the engine transcript does not emit fresh `visible_items` or `player_state.inventory` data.
 - `sceneIntroCollection`: a collection of objects with: the previous room name(s), move number(s) and command/action(s) that have taken the player into this Scene *from the previous*
 - `NPCs`: an accumulative, non-duplicative list of NPC names seen in this Scene
 

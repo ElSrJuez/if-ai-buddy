@@ -18,23 +18,25 @@
    - Record that NPC tracking is unexercised; leave a placeholder field in `Scene` and a comment in heuristics to revisit once NPC encounters appear.
    - Maintain a TODO to implement detection heuristics later when NPC output becomes available (log to `scratchpad/memory_implementation.md` once evidence surfaces).
 
-4. **Scene Actions (clarify result semantics per schema)** [DONE]
-   - Extended to distinguish action types:
-     - Movement verbs: result = new room_name (e.g., "west -> Forest")
-     - Interaction verbs: result = first line of description (e.g., "open mailbox -> Opening the small mailbox reveals a leaflet")
-   - Eliminates conflation of movement and interaction commands
-   - Emits `scene_action_added` event with command, result, and implicit type
-   - Uses only schema data (EngineTurn fields) without inventing heuristics
+4. **Scene Actions + Action Records** [DONE]
+   - Added structured `ActionRecord` objects alongside the legacy string list
+   - Each record carries `turn`, `command`, `result`, `category`, `verb`, and `target_item`
+   - Categories now distinguish `movement`, `item_interaction`, `world_object_interaction`, and `generic_interaction`
+   - Scene/world state updates (current items, scene items, player inventory) are driven by these canonical records so we never re-parse transcripts in downstream layers
 
-5. **Engine description ingestion fix** [DONE]
+5. **Engine description + multi-line handling** [DONE]
    - `_extract_description()` now skips initial blank lines and continues until the body ends, so the “West of House…” prose is retained
-   - This guarantees `facts.description` reflects the original narrative block, allowing `Scene.description_lines` to contain the full welcome text
-   - No schema assumptions were added—behavior still derives solely from the parsed transcript
+   - Memory storage splits transcript prose into canonical paragraphs (not single wrapped lines) while preserving indented lists, preventing duplicates such as `"This is a"` / `"forest"`
+   - Action summaries fall back to the full transcript body when descriptions are missing so commands like `read leaflet` capture the entire output
 
 ## 📋 PENDING / PARKED
 
-5. **Narrations (parked)**
+6. **Narrations (parked)**
    - Not implemented yet; revisit once LLM layer is online.
+
+7. **Multi-verb commands (parked)**
+   - ActionRecords currently capture one record per player input; if the player chains verbs ("take nest and climb tree"), the record category is dominated by the room change and embedded item verbs do not execute yet.
+   - Future LLM parsing should emit sub-actions so inventory/world state can reflect every clause deterministically.
 
 ## Design Principles Applied
 - **Respect the schema:** Only use fields from `EngineTurn` (game_engine_schema.json); don't invent derived data.

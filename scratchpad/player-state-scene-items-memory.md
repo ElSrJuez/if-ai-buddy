@@ -12,27 +12,25 @@ Capture the documented agreement that the memory layer must reflect both scene-l
 
 ## Requirements
 1. **Scene items (`current_items` + `scene_items`):**
-   - `scene_items` remains the union of every visible object mentioned in `EngineTurn.visible_items` for that room.
-   - `current_items` reflects the latest `visible_items` list so downstream consumers know what is currently present.
-   - Because `visible_items` reports only what the engine explicitly announces, we additionally monitor action results for any textual cues that would warrant a follow-up rewrite (e.g., an action result that produces a new "there is a..." paragraph) and treat that as an implicit refresh trigger.
+   - `scene_items` now records every object ever seen in the room via either `visible_items` *or* an `ActionRecord` categorized as `item_interaction` (e.g., `take nest`).
+   - `current_items` reflects the live room contents. It updates directly from `EngineTurn.visible_items` when the engine reports them, and otherwise relies on the structured `ActionRecord` effects (`take`, `drop`, `put`, etc.) so the room stays authoritative even when the transcript omits follow-up lists.
+   - Multi-line outputs (inventory dumps, leaflet text) are normalized before storage so we avoid accidental duplication caused by transcript wrapping.
 2. **Player inventory state:**
-   - `facts.inventory` is the only source of truth for what the player is carrying; it is tracked separately from `current_items` so the UI can show both the world state and the player’s items without conflating the two caches.
-   - When `facts.inventory` changes, emit a `state_change` event and persist the new list in the relevant `Scene` (or a higher-level store if needed) so the prompt builder can refer to `scene.current_items` for the room and the latest inventory snapshot for the player.
-   - Because inventory is global (not per-scene), consider a lightweight registry or field on `GameMemoryStore` that mirrors the last-known inventory list and is stored explicitly in TinyDB for audits.
+   - The store maintains a persisted `_player_state` table containing the latest inventory, score, and move count mirrored from `engine_turn.player_state`.
+   - Every change emits a `state_change` log entry and becomes part of the scene envelope so prompts/UI can render the exact item list without heuristics.
 3. **Action updateness signal:**
-   - Each `scene_action_added` event must include the command/result pair and, when available, any recognized visible-item effects so that consumers can decide whether to refresh `current_items` without retrying heuristics outside the schema.
-   - Movement actions continue to use the target room as the result; interaction actions surface the first description line as before.
+   - `scene_action_added` now writes both the legacy string summary and the structured `ActionRecord`. Downstream consumers should prefer the structured form because it carries verb, category, and `target_item` data needed for inventory/world synchronization.
+   - Movement actions still use the destination room as their result; all other actions hold the full normalized transcript block (not just the first line) so rich outputs are preserved for prompt building.
 
 ## Implementation Tasks
-1. **Augment `GameMemoryStore` with inventory tracking:**
-   - Introduce a `last_inventory` field stored on the scene or the store itself.
-   - When `facts.inventory` changes (non-null, different set), log a `state_change` event and persist the new list; also expose it in `get_context_for_prompt()` under `player_inventory`.
-2. **Scene items refresh logic:**
-   - Keep populating `scene.scene_items` and `scene.current_items` from `facts.visible_items` as before.
-   - Add a lightweight helper that watches recent `scene_action_added` results for keywords such as "there is" or explicit visible-item lists, and if such a description is present, trigger an immediate pass to update `current_items` (without re-parsing the entire transcript, simply re-use the already available `visible_items` list or cue the heuristics layer to re-run on the same transcript).
-3. **Documented behavior and tests:**
-   - Extend the TinyDB persistence schema to include the new inventory snapshot (if stored at the scene level) or a separate `player_state.json` record, matching what the UI docs expect.
-   - Update or add tests to cover the dual reporting of player inventory and scene item lists, ensuring the JSONL audit log reflects the new `state_change` and `scene_action_added` semantics.
+1. **Augment `GameMemoryStore` with inventory tracking** ✅
+   - `_player_state` TinyDB table stores the latest inventory/score/moves snapshot per player.
+   - `get_context_for_prompt()` exposes this under `player_state`, and `log_state_change` events capture every delta for audit.
+2. **Scene items refresh logic** ✅
+   - ActionRecords categorized as `item_interaction` now add/remove entries from both `scene_items` and `current_items` when the engine transcript omits `visible_items`.
+   - Movement/world-object actions continue to rely on `visible_items`, but we normalize their multi-line descriptions so deduplication works.
+3. **Documented behavior and tests** ✅
+   - Schema updated with `ActionRecord` definition plus player-state envelope, TinyDB now persists `_player_state`, and `testing/test_turn_lifecycle_order.py` exercises the memory-before-completions contract.
 
 ## Audit & Traceability
 - Every change to `current_items`, `scene_items`, and `player inventory` must emit a `my_logging.log_state_change` entry so we can replay the timeline.
@@ -40,11 +38,11 @@ Capture the documented agreement that the memory layer must reflect both scene-l
 
 ## Next Steps
 1. Implement the inventory snapshot storage and logging in `GameMemoryStore`.
-2. Enhance `scene_actions` to note when a command impacts visible items, and tap that signal to refresh `current_items` if necessary.
-3. Verify the JSON schema (config/game_engine_schema.json) is extended if we start persisting the inventory snapshot as part of the `EngineTurn`-like record or a new memory event.
-4. Update docs or tests that display the Items tree so they rely on the new player inventory plumbing rather than derived heuristics.
+2. Enhance `scene_actions` to note when a command impacts visible items, and tap that signal to refresh `current_items` if necessary. ✅ (ActionRecord-driven updates now perform this deterministically.)
+3. Verify the JSON schema (config/game_engine_schema.json) is extended if we start persisting the inventory snapshot as part of the `EngineTurn`-like record or a new memory event. ✅
+4. Update docs or tests that display the Items tree so they rely on the new player inventory plumbing rather than derived heuristics. 🔄 (Ongoing as the TUI items panel is refreshed.)
 
 ## TODO · Schema Alignment Gaps
-- [ ] **P0 – Emit `SceneEnvelope` payloads**: The runtime still produces/consumes bare `EngineTurn` objects (see `GameAPI` + `EngineFacts`), but the schema now expects a `{ scene, engine_turn }` envelope. Update the controller/serialization path so every turn includes the aggregated scene block alongside the raw engine data.
-- [ ] **P0 – Provide `engine_turn.player_state`**: `score`, `moves`, and `inventory` remain top-level fields in `EngineFacts` and are not serialized under a `player_state` object as required by the new schema. Restructure the heuristics output and downstream consumers so player-facing data is grouped correctly and inventory lives inside `player_state`.
-- [ ] **P1 – Persist player inventory snapshot**: GameMemoryStore only tracks `scene.current_items` (room objects) and never stores a global player-inventory record, so TinyDB/JSONL cannot satisfy the schema’s player-state guarantee. Add a persisted `player_inventory` (with logging) that mirrors `player_state.inventory` and expose it via `get_context_for_prompt()`.
+- [x] **P0 – Emit `SceneEnvelope` payloads**: Every turn now writes `{ scene, engine_turn }` envelopes to JSONL so downstream analytics consume the schema verbatim.
+- [x] **P0 – Provide `engine_turn.player_state`**: `EngineFacts` exposes a `PlayerStateSnapshot`, `GameAPI` threads it through `EngineTurn`, and the memory layer persists it without inventing new containers.
+- [x] **P1 – Persist player inventory snapshot**: `GameMemoryStore` mirrors the latest inventory inside `_player_state`, logs every delta, and exposes it via `get_context_for_prompt()`.
