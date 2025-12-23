@@ -26,6 +26,11 @@
    - Emits `scene_action_added` event with command, result, and implicit type
    - Uses only schema data (EngineTurn fields) without inventing heuristics
 
+5. **Engine description ingestion fix** [DONE]
+   - `_extract_description()` now skips initial blank lines and continues until the body ends, so the “West of House…” prose is retained
+   - This guarantees `facts.description` reflects the original narrative block, allowing `Scene.description_lines` to contain the full welcome text
+   - No schema assumptions were added—behavior still derives solely from the parsed transcript
+
 ## 📋 PENDING / PARKED
 
 5. **Narrations (parked)**

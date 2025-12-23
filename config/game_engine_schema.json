@@ -1,26 +1,95 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "EngineTurn",
+  "title": "SceneEnvelope",
   "type": "object",
   "properties": {
-    "command": { "type": "string" },
-    "transcript": { "type": "string" },
-    "room_name": { "type": ["string", "null"] },
-    "score": { "type": ["integer", "null"] },
-    "moves": { "type": ["integer", "null"] },
-    "inventory": {
-      "type": ["array", "null"],
-      "items": { "type": "string" }
+    "scene": {
+      "type": "object",
+      "properties": {
+        "room_name": { "type": ["string", "null"] },
+        "description": { "type": ["string", "null"] },
+        "visible_items": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "scene_items": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "current_items": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "scene_actions": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "scene_intro_collection": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "properties": {
+              "previous_room": { "type": ["string", "null"] },
+              "move_number": { "type": ["integer", "null"] },
+              "command": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "npcs": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "narrations": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "visit_count": { "type": ["integer", "null"] },
+        "first_visit_turn": { "type": ["integer", "null"] },
+        "last_visit_turn": { "type": ["integer", "null"] }
+      },
+      "required": ["room_name"],
+      "additionalProperties": true
     },
-    "visible_items": {
-      "type": ["array", "null"],
-      "items": { "type": "string" }
-    },
-    "description": { "type": ["string", "null"] },
-    "timestamp": { "type": "string", "format": "date-time" },
-    "pid": { "type": ["integer", "null"] },
-    "status_code": { "type": ["integer", "null"] }
+    "engine_turn": {
+      "$ref": "#/definitions/EngineTurn"
+    }
   },
-  "required": ["command", "transcript"],
-  "additionalProperties": true
+  "required": ["scene", "engine_turn"],
+  "additionalProperties": false,
+  "definitions": {
+    "PlayerState": {
+      "type": "object",
+      "properties": {
+        "inventory": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "score": { "type": ["integer", "null"] },
+        "moves": { "type": ["integer", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "EngineTurn": {
+      "type": "object",
+      "properties": {
+        "command": { "type": "string" },
+        "transcript": { "type": "string" },
+        "room_name": { "type": ["string", "null"] },
+        "description": { "type": ["string", "null"] },
+        "visible_items": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "player_state": { "$ref": "#/definitions/PlayerState" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "pid": { "type": ["integer", "null"] },
+        "status_code": { "type": ["integer", "null"] },
+        "gameException": { "type": ["boolean", "null"] },
+        "exceptionMessage": { "type": ["string", "null"] }
+      },
+      "required": ["command", "transcript"],
+      "additionalProperties": true
+    }
+  }
 }
