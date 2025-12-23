@@ -21,6 +21,7 @@ Fields:
 - `sceneItems`:  an accumulative, non-duplicative list of seen in-game objects
 - `currentItems`: list of current in-game objects as it last ended/resulted within this Scene
 - `sceneActions`: an accumulative, non-duplicative list of commands and results occuring in this Scene. For example on room changing actions, should include the command/way of exit
+- `actionRecords`: structured history of every player command observed in this scene. Each record contains the turn number, command text, normalized result summary, category (`movement` or `interaction`), parsed verb, and an optional `target_item`. The TinyDB store uses these canonical records to drive downstream world-state and inventory updates when the engine transcript does not emit fresh `visible_items` or `player_state.inventory` data.
 - `sceneIntroCollection`: a collection of objects with: the previous room name(s), move number(s) and command/action(s) that have taken the player into this Scene *from the previous*
 - `NPCs`: an accumulative, non-duplicative list of NPC names seen in this Scene
 
@@ -34,6 +35,26 @@ Responsibilities:
 - Maintain `description_lines` as a running union of narrative lines, avoiding duplicates.
 - Provide serialization/deserialization to the TinyDB store.
 - Store, Update and Retrieve in-databse persistance of the Scene
+
+### ActionRecord structure
+
+`ActionRecord` instances are emitted once per turn and stored alongside the textual `sceneActions` list. They serve as the authoritative, schema-aligned explanation of what the player attempted and what the engine reported back. Fields:
+
+- `turn`: absolute turn number within the session, so downstream systems can correlate actions with other telemetry.
+- `command`: the original player input.
+- `result`: normalized summary used for prompt context and auditing.
+- `category`: `movement` or `interaction`, determined by whether the room changed.
+- `verb`: the parsed root verb (`take`, `drop`, `look`, etc.) that higher-level systems can key off without reparsing the transcript.
+- `target_item`: optional string pointing to the object of the command (e.g., `leaflet`).
+
+`category` values:
+
+- `movement`: the action moved the player to a different room.
+- `item_interaction`: canonical indicator that the action manipulates an inventory/world object (e.g., `take`, `drop`, `put`). Memory uses this to update `scene_items`, `current_items`, and the persisted player inventory even when the engine omits `visible_items` from the transcript.
+- `world_object_interaction`: verbs like `open`, `close`, `look`, or `examine` that interact with the environment but may not immediately change inventory.
+- `generic_interaction`: everything else; retained for completeness so analytics can bucket miscellaneous commands.
+
+Consumers should treat `actionRecords` as the canonical source when updating UI trees, reconstructing inventory timelines, or replaying state transitions. The legacy `sceneActions` string list remains for backward compatibility with older prompts, but new integrations must prefer the structured records to avoid heuristic drift.
 
 ## Workflow
 

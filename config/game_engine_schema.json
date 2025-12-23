@@ -24,6 +24,11 @@
           "type": ["array", "null"],
           "items": { "type": "string" }
         },
+        "action_records": {
+          "type": ["array", "null"],
+          "description": "Structured log of every turn's command/result pair, used for item/inventory tracking",
+          "items": { "$ref": "#/definitions/ActionRecord" }
+        },
         "scene_intro_collection": {
           "type": ["array", "null"],
           "items": {
@@ -58,6 +63,29 @@
   "required": ["scene", "engine_turn"],
   "additionalProperties": false,
   "definitions": {
+    "ActionRecord": {
+      "type": "object",
+      "description": "Authoritative representation of a single player command and its inferred effects",
+      "properties": {
+        "turn": { "type": "integer", "description": "Absolute turn number when the command was issued" },
+        "command": { "type": "string", "description": "Raw player input" },
+        "result": { "type": "string", "description": "Normalized summary of the engine response" },
+        "category": {
+          "type": "string",
+          "enum": [
+            "movement",
+            "item_interaction",
+            "world_object_interaction",
+            "generic_interaction"
+          ],
+          "description": "movement when the room changes, item_interaction for inventory-affecting commands, world_object_interaction for verbs like open/look/examine, generic_interaction otherwise"
+        },
+        "verb": { "type": "string", "description": "Parsed root verb (take, drop, look, etc.)" },
+        "target_item": { "type": ["string", "null"], "description": "Optional normalized item or object acted upon" }
+      },
+      "required": ["turn", "command", "result", "category", "verb"],
+      "additionalProperties": false
+    },
     "PlayerState": {
       "type": "object",
       "properties": {

@@ -27,6 +27,38 @@ class SceneIntroduction:
     command: str
 
 
+@dataclass(frozen=True)
+class ActionRecord:
+    """Structured record of a player action and its inferred effects."""
+    turn: int
+    command: str
+    result: str
+    category: str
+    verb: str
+    target_item: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "turn": self.turn,
+            "command": self.command,
+            "result": self.result,
+            "category": self.category,
+            "verb": self.verb,
+            "target_item": self.target_item,
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "ActionRecord":
+        return ActionRecord(
+            turn=int(data.get("turn", 0)),
+            command=str(data.get("command", "")),
+            result=str(data.get("result", "")),
+            category=str(data.get("category", "interaction")),
+            verb=str(data.get("verb", "")),
+            target_item=data.get("target_item"),
+        )
+
+
 @dataclass
 class Scene:
     """Persistent state for a single room/scene."""
@@ -35,6 +67,7 @@ class Scene:
     scene_items: list[str] = field(default_factory=list)
     current_items: list[str] = field(default_factory=list)
     scene_actions: list[str] = field(default_factory=list)
+    action_records: list[ActionRecord] = field(default_factory=list)
     scene_intro_collection: list[SceneIntroduction] = field(default_factory=list)
     npcs: list[str] = field(default_factory=list)
     narrations: list[str] = field(default_factory=list)
@@ -50,6 +83,7 @@ class Scene:
             "scene_items": self.scene_items,
             "current_items": self.current_items,
             "scene_actions": self.scene_actions,
+            "action_records": [record.to_dict() for record in self.action_records],
             "scene_intro_collection": [asdict(intro) for intro in self.scene_intro_collection],
             "npcs": self.npcs,
             "narrations": self.narrations,
@@ -74,6 +108,7 @@ class Scene:
             "scene_items": self.scene_items,
             "current_items": self.current_items,
             "scene_actions": self.scene_actions,
+            "action_records": [record.to_dict() for record in self.action_records],
             "scene_intro_collection": intros,
             "npcs": self.npcs,
             "narrations": self.narrations,
@@ -102,12 +137,21 @@ class Scene:
             elif action is not None:
                 normalized_actions.append(str(action))
 
+        raw_records = data.get("action_records", [])
+        action_records: list[ActionRecord] = []
+        for record in raw_records:
+            if isinstance(record, ActionRecord):
+                action_records.append(record)
+            elif isinstance(record, dict):
+                action_records.append(ActionRecord.from_dict(record))
+
         return Scene(
             room_name=data.get("room_name", ""),
             description_lines=data.get("description_lines", []),
             scene_items=data.get("scene_items", []),
             current_items=data.get("current_items", []),
             scene_actions=normalized_actions,
+            action_records=action_records,
             scene_intro_collection=intros,
             npcs=data.get("npcs", []),
             narrations=data.get("narrations", []),
@@ -130,6 +174,19 @@ class GameMemoryStore:
     
     Provides serialization to disk and context extraction for prompts.
     """
+
+    _ITEM_ACQUIRE_VERBS: set[str] = {"take", "get", "grab", "pick"}
+    _ITEM_DROP_VERBS: set[str] = {"drop", "leave", "put", "place", "remove"}
+    _ITEM_VERBS: set[str] = _ITEM_ACQUIRE_VERBS | _ITEM_DROP_VERBS
+    _WORLD_OBJECT_VERBS: set[str] = {
+        "open",
+        "close",
+        "read",
+        "look",
+        "examine",
+        "inspect",
+        "search",
+    }
 
     def __init__(self, player_name: str, db_path: str | None = None) -> None:
         """Initialize the memory store with optional persistent DB.
@@ -220,6 +277,196 @@ class GameMemoryStore:
             self._player_score = snapshot.score
             score_changed = True
         if inventory_changed or moves_changed or score_changed:
+            self._persist_player_state()
+
+    @staticmethod
+    def _normalize_label(label: str | None) -> str:
+        if not label:
+            return ""
+        return " ".join(label.lower().split())
+
+    @staticmethod
+    def _format_action_entry(action: ActionRecord) -> str:
+        return f"T{action.turn:04d}: {action.command} -> {action.result}"
+
+    def _labels_match(self, a: str, b: str) -> bool:
+        normalized_a = self._normalize_label(a)
+        normalized_b = self._normalize_label(b)
+        if not normalized_a or not normalized_b:
+            return False
+        return normalized_a == normalized_b or normalized_a in normalized_b or normalized_b in normalized_a
+
+    def _find_label(self, collection: list[str], label: str | None) -> str | None:
+        if not label:
+            return None
+        for existing in collection:
+            if self._labels_match(existing, label):
+                return existing
+        return None
+
+    def _ensure_label(self, collection: list[str], label: str) -> str:
+        existing = self._find_label(collection, label)
+        if existing:
+            return existing
+        collection.append(label)
+        return label
+
+    def _remove_label(self, collection: list[str], label: str) -> bool:
+        existing = self._find_label(collection, label)
+        if not existing:
+            return False
+        collection.remove(existing)
+        return True
+
+    def _log_current_items_change(self, before: list[str], after: list[str]) -> None:
+        if before != after:
+            my_logging.log_state_change("current_items", before, after)
+
+    @staticmethod
+    def _summarize_action_result(
+        *,
+        room_name: str | None,
+        previous_room: str | None,
+        description: str | None,
+    ) -> str:
+        if room_name and previous_room and room_name != previous_room:
+            return room_name
+        if description:
+            first_line = description.split('\n')[0].strip()
+            if first_line:
+                return first_line
+        return "..."
+
+    @staticmethod
+    def _extract_action_target(command: str) -> tuple[str, str | None]:
+        raw = command.strip()
+        lowered = raw.lower()
+        if not lowered:
+            return "", None
+
+        patterns: list[tuple[str, str]] = [
+            ("take ", "take"),
+            ("get ", "take"),
+            ("grab ", "take"),
+            ("pick up ", "take"),
+            ("pick ", "take"),
+            ("drop ", "drop"),
+            ("leave ", "drop"),
+            ("put ", "drop"),
+            ("place ", "drop"),
+            ("remove ", "drop"),
+        ]
+
+        for prefix, normalized in patterns:
+            if lowered.startswith(prefix):
+                tail = raw[len(prefix):].strip()
+                target = GameMemoryStore._extract_primary_target(tail)
+                return normalized, target
+
+        parts = raw.split()
+        verb = parts[0].lower()
+        target = " ".join(parts[1:]).strip() or None
+        return verb, target
+
+    @staticmethod
+    def _extract_primary_target(phrase: str) -> str | None:
+        candidate = phrase.strip()
+        if not candidate:
+            return None
+        lowered = candidate.lower()
+        separators = [
+            " into ",
+            " in ",
+            " inside ",
+            " within ",
+            " on ",
+            " onto ",
+            " to ",
+            " from ",
+        ]
+        for sep in separators:
+            idx = lowered.find(sep)
+            if idx != -1:
+                return candidate[:idx].strip() or None
+        return candidate or None
+
+    def _build_action_record(
+        self,
+        *,
+        command: str,
+        result: str,
+        room_name: str | None,
+        previous_room: str | None,
+    ) -> ActionRecord:
+        verb, target = self._extract_action_target(command)
+        room_changed = bool(room_name and previous_room and room_name != previous_room)
+        category = self._categorize_action(
+            verb=verb,
+            has_target=bool(target),
+            room_changed=room_changed,
+        )
+        return ActionRecord(
+            turn=self._turn_count,
+            command=command,
+            result=result,
+            category=category,
+            verb=verb,
+            target_item=target,
+        )
+
+    def _categorize_action(self, *, verb: str, has_target: bool, room_changed: bool) -> str:
+        if room_changed:
+            return "movement"
+        if verb in self._ITEM_VERBS or (has_target and verb in self._ITEM_ACQUIRE_VERBS):
+            return "item_interaction"
+        if verb in self._WORLD_OBJECT_VERBS:
+            return "world_object_interaction"
+        return "generic_interaction"
+
+    @staticmethod
+    def _action_succeeded(action: ActionRecord, *, keywords: tuple[str, ...]) -> bool:
+        text = action.result.lower()
+        return any(keyword in text for keyword in keywords)
+
+    def _apply_world_item_effects(
+        self,
+        *,
+        scene: Scene,
+        action: ActionRecord,
+        inventory_snapshot_present: bool,
+    ) -> None:
+        if action.category != "item_interaction" or not action.target_item:
+            return
+        label = self._ensure_label(scene.scene_items, action.target_item)
+        before = list(scene.current_items)
+        if action.verb in self._ITEM_ACQUIRE_VERBS and self._action_succeeded(
+            action,
+            keywords=("taken", "already have", "take", "got", "in your possession"),
+        ):
+            removed = self._remove_label(scene.current_items, label)
+            if removed:
+                self._log_current_items_change(before, scene.current_items)
+            if not inventory_snapshot_present:
+                self._update_inventory_from_action(label, add=True)
+        elif action.verb in self._ITEM_DROP_VERBS and self._action_succeeded(
+            action,
+            keywords=("dropped", "placed", "left", "put", "done"),
+        ):
+            if not self._find_label(scene.current_items, label):
+                scene.current_items.append(label)
+            self._log_current_items_change(before, scene.current_items)
+            if not inventory_snapshot_present:
+                self._update_inventory_from_action(label, add=False)
+
+    def _update_inventory_from_action(self, label: str, *, add: bool) -> None:
+        before = list(self._player_inventory)
+        if add:
+            if not self._find_label(self._player_inventory, label):
+                self._player_inventory.append(label)
+        else:
+            self._remove_label(self._player_inventory, label)
+        if before != self._player_inventory:
+            my_logging.log_state_change("player_inventory", before, list(self._player_inventory))
             self._persist_player_state()
 
     def _build_scene_envelope(
@@ -337,6 +584,8 @@ class GameMemoryStore:
                     scene.scene_items.append(item)
         
         # Update current items from visible room objects
+        inventory_snapshot_present = facts.player_state.inventory is not None
+
         if facts.visible_items is not None:
             old_items = set(scene.current_items)
             new_items = set(facts.visible_items)
@@ -345,26 +594,38 @@ class GameMemoryStore:
                 my_logging.log_state_change("current_items", list(old_items), facts.visible_items)
         
         # Accumulate action (command and result)
+        action_record: ActionRecord | None = None
         if command:
-            # Determine result: room transition or first description line
-            if room_name and previous_room and room_name != previous_room:
-                # Movement action: result is the new room
-                result = room_name
-            elif facts.description:
-                # Interaction action: result is first line of description
-                first_line = facts.description.split('\n')[0].strip()
-                result = first_line if first_line else "..."
-            else:
-                result = "..."
-            
-            action_summary = f"{command} -> {result}"
-            if action_summary not in scene.scene_actions:
-                scene.scene_actions.append(action_summary)
+            result_summary = self._summarize_action_result(
+                room_name=room_name,
+                previous_room=previous_room,
+                description=facts.description,
+            )
+            action_record = self._build_action_record(
+                command=command,
+                result=result_summary,
+                room_name=room_name,
+                previous_room=previous_room,
+            )
+            entry = self._format_action_entry(action_record)
+            if entry not in scene.scene_actions:
+                scene.scene_actions.append(entry)
                 my_logging.log_memory_event("scene_action_added", {
                     "room": room_name,
                     "command": command,
-                    "result": result[:80],
+                    "result": result_summary[:80],
+                    "turn": self._turn_count,
                 })
+            has_record = any(r.turn == action_record.turn and r.command == action_record.command for r in scene.action_records)
+            if not has_record:
+                scene.action_records.append(action_record)
+
+        if action_record and facts.visible_items is None:
+            self._apply_world_item_effects(
+                scene=scene,
+                action=action_record,
+                inventory_snapshot_present=inventory_snapshot_present,
+            )
         
         self._current_room = room_name
         self._persist_scene(scene)
@@ -483,5 +744,6 @@ class GameMemoryStore:
 __all__ = [
     "Scene",
     "SceneIntroduction",
+    "ActionRecord",
     "GameMemoryStore",
 ]
