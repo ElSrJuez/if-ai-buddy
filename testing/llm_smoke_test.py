@@ -10,12 +10,20 @@ from typing import Any
 
 from openai import BadRequestError
 
-from module import my_config
+from module import my_config, my_logging
+from module import common_llm_layer
 from module.llm_factory_FoundryLocal import create_llm_client
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="LLM smoke test")
+    parser.add_argument(
+        "--debug",
+        "--DEBUG",
+        dest="debug",
+        action="store_true",
+        help="Enable DEBUG-tier logging (writes full request/response JSONL traces)",
+    )
     parser.add_argument(
         "--prompt",
         default="Summarize the feeling of finding a mysterious object in 1 sentence.",
@@ -53,6 +61,11 @@ def load_schema(config: dict[str, object], key: str) -> dict | None:
 def main() -> None:
     args = parse_args()
     config = my_config.load_config()
+
+    # DEBUG-tier logging is opt-in for smoke tests (do not implicitly enable).
+    if args.debug:
+        my_logging.init(player_name=str(config.get("player_name", "Adventurer")), config=config)
+
     llm = create_llm_client(config)
 
     messages = [
@@ -149,31 +162,7 @@ def main() -> None:
 
 
 def _extract_stream_chunk(event: Any) -> str | None:
-    """Extract text from either chat.completions streaming chunks or responses streaming events."""
-    if event is None:
-        return None
-
-    # OpenAI Responses API streaming events: event.type == 'response.output_text.delta'
-    event_type = getattr(event, "type", None) if not isinstance(event, dict) else event.get("type")
-    if event_type == "response.output_text.delta":
-        delta = getattr(event, "delta", None) if not isinstance(event, dict) else event.get("delta")
-        return str(delta) if delta else None
-
-    # OpenAI Chat Completions streaming chunks: chunk.choices[0].delta.content
-    choices = getattr(event, "choices", None) if not isinstance(event, dict) else event.get("choices")
-    if not choices:
-        return None
-
-    first = choices[0] if isinstance(choices, list) else None
-    if first is None:
-        return None
-
-    delta = getattr(first, "delta", None) if not isinstance(first, dict) else first.get("delta")
-    if delta is None:
-        return None
-
-    content = getattr(delta, "content", None) if not isinstance(delta, dict) else delta.get("content")
-    return str(content) if content else None
+    return common_llm_layer.extract_stream_text(event)
 
 
 def _stream_foundry(
@@ -190,21 +179,65 @@ def _stream_foundry(
         temperature=temperature,
         max_tokens=max_tokens,
     )
-    chunks: list[str] = []
-    for event in stream:
-        chunk = _extract_stream_chunk(event)
-        if chunk:
-            print(chunk, end="", flush=True)
-            chunks.append(chunk)
+    request = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+
+    def _on_text(text: str) -> None:
+        print(text, end="", flush=True)
+
+    streamed_text, base_summary, raw_parts = common_llm_layer.stream_text_from_iterable(
+        stream,
+        on_text=_on_text,
+    )
+    summary = common_llm_layer.StreamSummary(
+        model=model,
+        streamed_text=streamed_text,
+        chunk_count=base_summary.chunk_count,
+        text_chunk_count=base_summary.text_chunk_count,
+        ignored_chunk_count=base_summary.ignored_chunk_count,
+        stream_format=base_summary.stream_format,
+        final_channel_seen=base_summary.final_channel_seen,
+    )
     print()
 
-    if not chunks:
-        raise RuntimeError("Foundry stream produced no chunks")
+    if not streamed_text:
+        # Never crash the smoke test on an empty filtered output; log enough data to prove why.
+        common_llm_layer.log_stream_finished(
+            request=request,
+            streamed_text=streamed_text,
+            response=None,
+            raw_parts=raw_parts,
+            summary=summary,
+        )
+        print(
+            "[warn] Stream completed but produced no user-visible text. "
+            f"stream_format={summary.stream_format} final_channel_seen={summary.final_channel_seen}",
+            file=sys.stderr,
+        )
 
-    # Explicitly return the streamed text (do not pretend this is a full API response).
+    common_llm_layer.log_stream_finished(
+        request=request,
+        streamed_text=streamed_text,
+        response=None,
+        raw_parts=raw_parts,
+        summary=summary,
+    )
+
     return {
         "model": model,
-        "streamed_text": "".join(chunks),
+        "streamed_text": streamed_text,
+        "stream": {
+            "format": summary.stream_format,
+            "final_channel_seen": summary.final_channel_seen,
+            "chunk_count": summary.chunk_count,
+            "text_chunk_count": summary.text_chunk_count,
+            "ignored_chunk_count": summary.ignored_chunk_count,
+        },
     }
 
 
@@ -216,36 +249,75 @@ def _stream_openai(
     temperature: float,
     max_tokens: int,
 ) -> Any:
-    stream = client.responses.stream(
+    request = {
+        "model": model,
+        "input": {"messages": messages},
+        "temperature": temperature,
+        "max_output_tokens": max_tokens,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+
+    def _on_text(text: str) -> None:
+        print(text, end="", flush=True)
+
+    stream = client.responses.create(
         model=model,
         input={"messages": messages},
         temperature=temperature,
         max_output_tokens=max_tokens,
         max_tokens=max_tokens,
+        stream=True,
     )
-    chunks: list[str] = []
-    final_response: Any = None
-    with stream as events:
-        for event in events:
-            chunk = _extract_stream_chunk(event)
-            if chunk:
-                print(chunk, end="", flush=True)
-                chunks.append(chunk)
-        if hasattr(events, "get_final_response"):
-            final_response = events.get_final_response()
+
+    streamed_text, base_summary, raw_parts = common_llm_layer.stream_text_from_iterable(
+        stream,
+        on_text=_on_text,
+    )
+    summary = common_llm_layer.StreamSummary(
+        model=model,
+        streamed_text=streamed_text,
+        chunk_count=base_summary.chunk_count,
+        text_chunk_count=base_summary.text_chunk_count,
+        ignored_chunk_count=base_summary.ignored_chunk_count,
+        stream_format=base_summary.stream_format,
+        final_channel_seen=base_summary.final_channel_seen,
+    )
     print()
-    if final_response is None:
-        if not chunks:
-            raise RuntimeError("OpenAI stream produced no chunks")
-        final_response = {
-            "choices": [
-                {
-                    "message": {"content": "".join(chunks)},
-                }
-            ],
-            "model": model,
-        }
-    return final_response
+
+    if not streamed_text:
+        common_llm_layer.log_stream_finished(
+            request=request,
+            streamed_text=streamed_text,
+            response=None,
+            raw_parts=raw_parts,
+            summary=summary,
+        )
+        print(
+            "[warn] Stream completed but produced no user-visible text. "
+            f"stream_format={summary.stream_format} final_channel_seen={summary.final_channel_seen}",
+            file=sys.stderr,
+        )
+
+    common_llm_layer.log_stream_finished(
+        request=request,
+        streamed_text=streamed_text,
+        response=None,
+        raw_parts=raw_parts,
+        summary=summary,
+    )
+
+    return {
+        "model": model,
+        "streamed_text": streamed_text,
+        "stream": {
+            "format": summary.stream_format,
+            "final_channel_seen": summary.final_channel_seen,
+            "chunk_count": summary.chunk_count,
+            "text_chunk_count": summary.text_chunk_count,
+            "ignored_chunk_count": summary.ignored_chunk_count,
+        },
+    }
 
 
 if __name__ == "__main__":

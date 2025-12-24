@@ -2,6 +2,7 @@
 /log/*
 !log/.gitkeep
 
+
 # Resources
 /res/*
 !res/.gitkeep

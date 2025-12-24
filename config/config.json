@@ -25,6 +25,7 @@
   "system_log": "log/system.log",
   "gameapi_jsonl": "log/gameapi.jsonl",
   "rest_jsonl": "log/rest_helper.jsonl",
+  "common_llm_layer_jsonl": "log/{player}_common_llm_layer.jsonl",
   "game_engine_jsonl_filename_template": "log/{player}_game_engine.jsonl",
   "llm_completion_jsonl_filename_template": "log/{player}_llm_completions.jsonl",
   "memory_db_path_template": "res/db/{player}_memory.json",

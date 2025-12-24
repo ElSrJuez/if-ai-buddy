@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
+
 import openai
 from foundry_local import FoundryLocalManager
+
+from module import my_config, my_logging
 
 
 def stream_prompt(prompt: str, alias: str = "gpt-oss-20b-cuda-gpu") -> None:
@@ -39,9 +43,36 @@ def _extract_chunk_text(chunk: openai.openai_object.OpenAIObject) -> str | None:
     return None
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Foundry Local streaming test")
+    parser.add_argument(
+        "--debug",
+        "--DEBUG",
+        dest="debug",
+        action="store_true",
+        help="Enable DEBUG-tier logging (writes full request/response JSONL traces)",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Override model alias from config (or defaults to gpt-oss-20b-cuda-gpu)",
+    )
+    parser.add_argument(
+        "--prompt",
+        default="Tell me about Foundry Local in a couple of sentences.",
+        help="Prompt to send",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    prompt = "Tell me about Foundry Local in a couple of sentences."  # simple test prompt
-    stream_prompt(prompt)
+    args = _parse_args()
+    config = my_config.load_config()
+    if args.debug:
+        my_logging.init(player_name=str(config.get("player_name", "Adventurer")), config=config)
+
+    alias = args.model or str(config.get("llm_model_alias", "gpt-oss-20b-cuda-gpu"))
+    stream_prompt(args.prompt, alias=alias)
 
 
 if __name__ == "__main__":

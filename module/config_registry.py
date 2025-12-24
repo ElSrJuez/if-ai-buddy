@@ -39,6 +39,7 @@ SECTION_KEYS: dict[str, set[str]] = {
         "rest_jsonl",
         "game_engine_jsonl_filename_template",
         "llm_completion_jsonl_filename_template",
+        "common_llm_layer_jsonl",
         "loglevel",
     },
     "persistence": {
