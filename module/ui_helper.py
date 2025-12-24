@@ -124,19 +124,26 @@ class NarrationPanel(Static):
         super().__init__()
         self._stream_buffer: str = ""
         self._streaming: bool = False
-        self._stream_view = Static("")
+        # Use RichLog for both streaming + history so the stream is scrollable
+        # and doesn't reflow the layout by growing a Static at the top.
+        self._stream_log = RichLog(markup=True, highlight=False, wrap=True)
         self._narration_log = RichLog(markup=True, highlight=False, wrap=True)
 
+        # Hide the stream log by default; show it only during streaming.
+        self._stream_log.styles.display = "none"
+
     def compose(self) -> ComposeResult:
-        # Streaming view shows the currently-being-generated narration.
-        yield self._stream_view
+        # Stream log is shown only during streaming.
+        yield self._stream_log
         yield self._narration_log
 
     def begin_stream(self) -> None:
         """Begin a narration streaming session."""
         self._streaming = True
         self._stream_buffer = ""
-        self._stream_view.update("")
+        self._narration_log.styles.display = "none"
+        self._stream_log.styles.display = "block"
+        self._stream_log.clear()
 
     def append_stream(self, text: str) -> None:
         """Append streamed narration text.
@@ -151,7 +158,9 @@ class NarrationPanel(Static):
         if not text:
             return
         self._stream_buffer += text
-        self._stream_view.update(self._stream_buffer)
+        # Rewrite the streaming view in-place (single log entry) so we don't spam per token.
+        self._stream_log.clear()
+        self._stream_log.write(self._stream_buffer)
 
     def end_stream(self, final_text: str | None = None) -> None:
         """End a narration streaming session.
@@ -161,7 +170,9 @@ class NarrationPanel(Static):
         committed = (final_text if final_text is not None else self._stream_buffer).strip()
         self._streaming = False
         self._stream_buffer = ""
-        self._stream_view.update("")
+        self._stream_log.clear()
+        self._stream_log.styles.display = "none"
+        self._narration_log.styles.display = "block"
         if committed:
             self._narration_log.write(committed)
 
@@ -182,7 +193,9 @@ class NarrationPanel(Static):
         self._narration_log.clear()
         self._stream_buffer = ""
         self._streaming = False
-        self._stream_view.update("")
+        self._stream_log.clear()
+        self._stream_log.styles.display = "none"
+        self._narration_log.styles.display = "block"
         my_logging.system_debug("Narration panel cleared")
 
 
