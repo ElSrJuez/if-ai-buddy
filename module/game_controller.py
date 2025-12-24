@@ -417,12 +417,14 @@ class GameController:
         job_spec: NarrationJobSpec,
         room_snapshot: str,
     ) -> dict[str, Any]:
+        self._app.begin_narration_stream()
         result = await self._completions.stream_narration(
             job_spec,
-            on_chunk=self._app.add_narration,
+            on_chunk=self._app.add_narration_stream_chunk,
         )
         payload = result.get("payload", {})
         narration = payload.get("narration")
+        self._app.end_narration_stream(narration)
         if narration:
             self._memory.append_narration(room_snapshot, narration)
         return result

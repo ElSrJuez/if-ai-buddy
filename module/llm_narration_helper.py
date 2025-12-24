@@ -153,8 +153,6 @@ class CompletionsHelper:
         max_tokens = self.config.get("max_tokens", 1000)
 
         def _job() -> tuple[str, Any]:
-            chunks: list[str] = []
-            raw_parts: list[Any] = []
             stream = self.llm_client.responses.stream(
                 model=model,
                 input={"messages": messages},
@@ -163,14 +161,25 @@ class CompletionsHelper:
                 max_tokens=max_tokens,
             )
             with stream as events:
-                for event in events:
-                    raw_parts.append(event)
-                    chunk = common_llm_layer.extract_stream_text(event)
-                    if chunk:
-                        chunks.append(chunk)
-                        if on_chunk:
-                            loop.call_soon_threadsafe(on_chunk, chunk)
+                def _emit(text: str) -> None:
+                    if on_chunk:
+                        loop.call_soon_threadsafe(on_chunk, text)
+
+                streamed_text, base_summary, raw_parts = common_llm_layer.stream_text_from_iterable(
+                    events,
+                    on_text=_emit,
+                )
                 final_response = events.get_final_response()
+
+            summary = common_llm_layer.StreamSummary(
+                model=model,
+                streamed_text=streamed_text,
+                chunk_count=base_summary.chunk_count,
+                text_chunk_count=base_summary.text_chunk_count,
+                ignored_chunk_count=base_summary.ignored_chunk_count,
+                stream_format=base_summary.stream_format,
+                final_channel_seen=base_summary.final_channel_seen,
+            )
 
             common_llm_layer.log_stream_finished(
                 request={
@@ -182,18 +191,12 @@ class CompletionsHelper:
                     "max_tokens": max_tokens,
                     "stream": True,
                 },
-                streamed_text="".join(chunks),
+                streamed_text=streamed_text,
                 response=final_response,
                 raw_parts=raw_parts,
-                summary=common_llm_layer.StreamSummary(
-                    model=model,
-                    streamed_text="".join(chunks),
-                    chunk_count=len(raw_parts),
-                    text_chunk_count=len(chunks),
-                    ignored_chunk_count=max(0, len(raw_parts) - len(chunks)),
-                ),
+                summary=summary,
             )
-            return "".join(chunks), final_response
+            return streamed_text, final_response
 
         return await asyncio.to_thread(_job)
 
@@ -208,23 +211,31 @@ class CompletionsHelper:
         max_tokens = self.config.get("max_tokens", 1000)
 
         def _job() -> tuple[str, Any]:
-            chunks: list[str] = []
-            raw_parts: list[Any] = []
             stream = self.llm_client.stream_chat(
                 model=model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-            for part in stream:
-                raw_parts.append(part)
-                chunk = common_llm_layer.extract_stream_text(part)
-                if chunk:
-                    chunks.append(chunk)
-                    if on_chunk:
-                        loop.call_soon_threadsafe(on_chunk, chunk)
 
-            narration_text = "".join(chunks)
+            def _emit(text: str) -> None:
+                if on_chunk:
+                    loop.call_soon_threadsafe(on_chunk, text)
+
+            streamed_text, base_summary, raw_parts = common_llm_layer.stream_text_from_iterable(
+                stream,
+                on_text=_emit,
+            )
+
+            summary = common_llm_layer.StreamSummary(
+                model=model,
+                streamed_text=streamed_text,
+                chunk_count=base_summary.chunk_count,
+                text_chunk_count=base_summary.text_chunk_count,
+                ignored_chunk_count=base_summary.ignored_chunk_count,
+                stream_format=base_summary.stream_format,
+                final_channel_seen=base_summary.final_channel_seen,
+            )
 
             common_llm_layer.log_stream_finished(
                 request={
@@ -235,19 +246,13 @@ class CompletionsHelper:
                     "max_tokens": max_tokens,
                     "stream": True,
                 },
-                streamed_text=narration_text,
+                streamed_text=streamed_text,
                 response=None,
                 raw_parts=raw_parts,
-                summary=common_llm_layer.StreamSummary(
-                    model=model,
-                    streamed_text=narration_text,
-                    chunk_count=len(raw_parts),
-                    text_chunk_count=len(chunks),
-                    ignored_chunk_count=max(0, len(raw_parts) - len(chunks)),
-                ),
+                summary=summary,
             )
 
-            return narration_text, None
+            return streamed_text, None
 
         return await asyncio.to_thread(_job)
 

@@ -122,13 +122,55 @@ class NarrationPanel(Static):
 
     def __init__(self) -> None:
         super().__init__()
+        self._stream_buffer: str = ""
+        self._streaming: bool = False
+        self._stream_view = Static("")
         self._narration_log = RichLog(markup=True, highlight=False, wrap=True)
 
     def compose(self) -> ComposeResult:
+        # Streaming view shows the currently-being-generated narration.
+        yield self._stream_view
         yield self._narration_log
+
+    def begin_stream(self) -> None:
+        """Begin a narration streaming session."""
+        self._streaming = True
+        self._stream_buffer = ""
+        self._stream_view.update("")
+
+    def append_stream(self, text: str) -> None:
+        """Append streamed narration text.
+
+        We update the stream view in-place so streaming does not spam the log
+        with one line per token.
+        """
+        if not self._streaming:
+            # Treat as a non-streaming write.
+            self.add_narration(text)
+            return
+        if not text:
+            return
+        self._stream_buffer += text
+        self._stream_view.update(self._stream_buffer)
+
+    def end_stream(self, final_text: str | None = None) -> None:
+        """End a narration streaming session.
+
+        Commits the final narration into the history log once.
+        """
+        committed = (final_text if final_text is not None else self._stream_buffer).strip()
+        self._streaming = False
+        self._stream_buffer = ""
+        self._stream_view.update("")
+        if committed:
+            self._narration_log.write(committed)
 
     def add_narration(self, text: str) -> None:
         """Add narration to the panel."""
+        if self._streaming:
+            # During streaming, update in-place rather than spamming the log.
+            self.append_stream(text)
+            return
         self._narration_log.write(text)
 
     def add_hint(self, text: str) -> None:
@@ -138,6 +180,9 @@ class NarrationPanel(Static):
     def reset(self) -> None:
         """Clear all narration content."""
         self._narration_log.clear()
+        self._stream_buffer = ""
+        self._streaming = False
+        self._stream_view.update("")
         my_logging.system_debug("Narration panel cleared")
 
 
@@ -282,6 +327,18 @@ class IFBuddyTUI:
         """Add narration to the right panel."""
         if self.narration_panel:
             self.narration_panel.add_narration(text)
+
+    def begin_narration_stream(self) -> None:
+        if self.narration_panel:
+            self.narration_panel.begin_stream()
+
+    def add_narration_stream_chunk(self, text: str) -> None:
+        if self.narration_panel:
+            self.narration_panel.append_stream(text)
+
+    def end_narration_stream(self, final_text: str | None = None) -> None:
+        if self.narration_panel:
+            self.narration_panel.end_stream(final_text)
 
     def add_hint(self, text: str) -> None:
         """Add a hint/guidance to the narration panel."""
