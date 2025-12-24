@@ -178,13 +178,40 @@ class CompletionsHelper:
         on_chunk: Callable[[str], None] | None,
         loop: asyncio.AbstractEventLoop,
     ) -> tuple[str, Any]:
+        model = self.config["llm_model_alias"]
+        temperature = self.config.get("llm_temperature", 0.7)
+        max_tokens = self.config.get("max_tokens", 1000)
+
         def _job() -> tuple[str, Any]:
-            response = self._call_foundry(messages)
-            payload = self._parse_response(response)
-            narration = payload.get("narration", "")
-            if narration and on_chunk:
-                loop.call_soon_threadsafe(on_chunk, narration)
-            return narration, response
+            chunks: list[str] = []
+            stream = self.llm_client.stream_chat(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            final_response = None
+            if hasattr(stream, "__enter__"):
+                with stream as events:
+                    for event in events:
+                        chunk = self._extract_stream_chunk(event)
+                        if chunk:
+                            chunks.append(chunk)
+                            if on_chunk:
+                                loop.call_soon_threadsafe(on_chunk, chunk)
+                    if hasattr(events, "get_final_response"):
+                        final_response = events.get_final_response()
+            else:
+                for event in stream:
+                    chunk = self._extract_stream_chunk(event)
+                    if chunk:
+                        chunks.append(chunk)
+                        if on_chunk:
+                            loop.call_soon_threadsafe(on_chunk, chunk)
+                if hasattr(stream, "get_final_response"):
+                    final_response = stream.get_final_response()
+            narration_text = "".join(chunks)
+            return narration_text, final_response
 
         return await asyncio.to_thread(_job)
 
@@ -226,6 +253,17 @@ class CompletionsHelper:
     def _extract_stream_chunk(self, event: Any) -> str | None:
         if event is None:
             return None
+        # Chat Completions streaming chunks: chunk.choices[0].delta.content
+        if hasattr(event, "choices"):
+            try:
+                choices = event.choices
+                if choices and hasattr(choices[0], "delta"):
+                    delta = choices[0].delta
+                    content = getattr(delta, "content", None)
+                    if content:
+                        return str(content)
+            except Exception:
+                pass
         if isinstance(event, dict):
             delta = event.get("delta")
             text = self._flatten_delta(delta)
@@ -256,6 +294,8 @@ class CompletionsHelper:
             return str(getattr(delta, "text"))
         if hasattr(delta, "output_text"):
             return str(getattr(delta, "output_text"))
+        if hasattr(delta, "content"):
+            return str(getattr(delta, "content"))
         return None
 
     def _extract_token_count(self, raw_response: Any) -> int:

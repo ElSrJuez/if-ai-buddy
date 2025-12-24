@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from openai import BadRequestError
 
@@ -84,7 +85,26 @@ def main() -> None:
     print(json.dumps({k: v for k, v in request_kwargs.items() if k != "messages"}, indent=2))
 
     try:
-        response = llm.chat(**request_kwargs)
+        provider = config.get("llm_provider")
+        temperature = request_kwargs["temperature"]
+        max_tokens = request_kwargs["max_tokens"]
+        model = request_kwargs["model"]
+        if provider == "foundry" and hasattr(llm, "stream_chat"):
+            response = _stream_foundry(
+                llm,
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        else:
+            response = _stream_openai(
+                llm,
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
     except BadRequestError as exc:
         print("LLM call failed with 400 Bad Request", file=sys.stderr)
         print("Response headers:", file=sys.stderr)
@@ -126,6 +146,106 @@ def main() -> None:
 
     printable = _make_serializable(response)
     print(json.dumps(printable, indent=2))
+
+
+def _extract_stream_chunk(event: Any) -> str | None:
+    """Extract text from either chat.completions streaming chunks or responses streaming events."""
+    if event is None:
+        return None
+
+    # OpenAI Responses API streaming events: event.type == 'response.output_text.delta'
+    event_type = getattr(event, "type", None) if not isinstance(event, dict) else event.get("type")
+    if event_type == "response.output_text.delta":
+        delta = getattr(event, "delta", None) if not isinstance(event, dict) else event.get("delta")
+        return str(delta) if delta else None
+
+    # OpenAI Chat Completions streaming chunks: chunk.choices[0].delta.content
+    choices = getattr(event, "choices", None) if not isinstance(event, dict) else event.get("choices")
+    if not choices:
+        return None
+
+    first = choices[0] if isinstance(choices, list) else None
+    if first is None:
+        return None
+
+    delta = getattr(first, "delta", None) if not isinstance(first, dict) else first.get("delta")
+    if delta is None:
+        return None
+
+    content = getattr(delta, "content", None) if not isinstance(delta, dict) else delta.get("content")
+    return str(content) if content else None
+
+
+def _stream_foundry(
+    adapter: Any,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    max_tokens: int,
+) -> Any:
+    stream = adapter.stream_chat(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    chunks: list[str] = []
+    for event in stream:
+        chunk = _extract_stream_chunk(event)
+        if chunk:
+            print(chunk, end="", flush=True)
+            chunks.append(chunk)
+    print()
+
+    if not chunks:
+        raise RuntimeError("Foundry stream produced no chunks")
+
+    # Explicitly return the streamed text (do not pretend this is a full API response).
+    return {
+        "model": model,
+        "streamed_text": "".join(chunks),
+    }
+
+
+def _stream_openai(
+    client: Any,
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    max_tokens: int,
+) -> Any:
+    stream = client.responses.stream(
+        model=model,
+        input={"messages": messages},
+        temperature=temperature,
+        max_output_tokens=max_tokens,
+        max_tokens=max_tokens,
+    )
+    chunks: list[str] = []
+    final_response: Any = None
+    with stream as events:
+        for event in events:
+            chunk = _extract_stream_chunk(event)
+            if chunk:
+                print(chunk, end="", flush=True)
+                chunks.append(chunk)
+        if hasattr(events, "get_final_response"):
+            final_response = events.get_final_response()
+    print()
+    if final_response is None:
+        if not chunks:
+            raise RuntimeError("OpenAI stream produced no chunks")
+        final_response = {
+            "choices": [
+                {
+                    "message": {"content": "".join(chunks)},
+                }
+            ],
+            "model": model,
+        }
+    return final_response
 
 
 if __name__ == "__main__":

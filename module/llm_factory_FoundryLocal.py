@@ -55,6 +55,26 @@ class FoundryChatAdapter:
 
         return self._client.chat.completions.create(**kwargs)
 
+    def stream_chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ):
+        kwargs: dict[str, Any] = {
+            "model": self._ensure_alias_loaded(model),
+            "messages": messages,
+            "stream": True,
+        }
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+
+        return self._client.chat.completions.create(**kwargs)
+
     def _build_response_format(self, schema: dict[str, Any] | None) -> dict[str, Any] | None:
         if not schema:
             return None

@@ -3,17 +3,16 @@
     "1": {
       "key": "player_state",
       "inventory": [],
-      "moves": 1,
+      "moves": 0,
       "score": 0,
-      "last_updated_turn": 2
+      "last_updated_turn": 1
     }
   },
   "_default": {
     "1": {
       "room_name": "West of House",
       "description_lines": [
-        "ZORK I: The Great Underground Empire Infocom interactive fiction - a fantasy story Copyright (c) 1981, 1982, 1983, 1984, 1985, 1986 Infocom, Inc. All rights reserved. ZORK is a registered trademark of Infocom, Inc. Release 119 / Serial number 880429",
-        "Goodbye."
+        "ZORK I: The Great Underground Empire Infocom interactive fiction - a fantasy story Copyright (c) 1981, 1982, 1983, 1984, 1985, 1986 Infocom, Inc. All rights reserved. ZORK is a registered trademark of Infocom, Inc. Release 119 / Serial number 880429"
       ],
       "scene_items": [
         "a small mailbox here"
@@ -22,8 +21,7 @@
         "a small mailbox here"
       ],
       "scene_actions": [
-        "T0001: __start__ -> ZORK I: The Great Underground Empire Infocom interactive fiction - a fantasy story Copyright (c) 1981, 1982, 1983, 1984, 1985, 1986 Infocom, Inc. All rights reserved. ZORK is a registered trademark of Infocom, Inc. Release 119 / Serial number 880429",
-        "T0002: hello -> Goodbye."
+        "T0001: __start__ -> ZORK I: The Great Underground Empire Infocom interactive fiction - a fantasy story Copyright (c) 1981, 1982, 1983, 1984, 1985, 1986 Infocom, Inc. All rights reserved. ZORK is a registered trademark of Infocom, Inc. Release 119 / Serial number 880429"
       ],
       "action_records": [
         {
@@ -33,24 +31,14 @@
           "category": "generic_interaction",
           "verb": "__start__",
           "target_item": null
-        },
-        {
-          "turn": 2,
-          "command": "hello",
-          "result": "Goodbye.",
-          "category": "generic_interaction",
-          "verb": "hello",
-          "target_item": null
         }
       ],
       "scene_intro_collection": [],
       "npcs": [],
-      "narrations": [
-        "The game continues..."
-      ],
-      "visit_count": 2,
+      "narrations": [],
+      "visit_count": 1,
       "first_visit_turn": 1,
-      "last_visit_turn": 2
+      "last_visit_turn": 1
     }
   }
 }
