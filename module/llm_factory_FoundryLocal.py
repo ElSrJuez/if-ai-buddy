@@ -18,14 +18,13 @@ class FoundryChatAdapter:
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
+        alias = config.get("llm_model_alias")
+        if not alias:
+            raise ValueError("Foundry provider requires 'llm_model_alias' in config")
+
         self.manager = FoundryLocalManager()
-        self.model_alias = config.get("llm_model_alias")
-        if self.model_alias:
-            # Ensure the requested model is available before first invocation.
-            try:
-                self.manager.load_model(self.model_alias)
-            except Exception as exc:
-                logger.debug("Foundry model preload skipped: %s", exc)
+        self._loaded_aliases: dict[str, str] = {}
+        self._ensure_alias_loaded(alias)
 
         self._client = OpenAI(
             base_url=self.manager.endpoint,
@@ -42,7 +41,7 @@ class FoundryChatAdapter:
         max_tokens: int | None = None,
     ) -> Any:
         kwargs: dict[str, Any] = {
-            "model": model,
+            "model": self._ensure_alias_loaded(model),
             "messages": messages,
         }
         if temperature is not None:
@@ -68,6 +67,19 @@ class FoundryChatAdapter:
                 "strict": True,
             },
         }
+
+    def _ensure_alias_loaded(self, alias: str) -> str:
+        model_id = self._loaded_aliases.get(alias)
+        if model_id:
+            return model_id
+
+        model_info = self.manager.load_model(alias)
+        if not model_info or not getattr(model_info, "id", None):
+            raise ValueError(f"Could not resolve Foundry model alias '{alias}'")
+
+        model_id = model_info.id
+        self._loaded_aliases[alias] = model_id
+        return model_id
 
 
 def create_llm_client(config: dict[str, Any]) -> Any:

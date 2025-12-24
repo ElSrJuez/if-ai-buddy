@@ -2,6 +2,12 @@
 /log/*
 !log/.gitkeep
 
+# Resources
+/res/*
+!res/.gitkeep
+/res/db/*
+!res/db/.gitkeep
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

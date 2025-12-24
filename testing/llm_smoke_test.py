@@ -100,7 +100,31 @@ def main() -> None:
         print(f"LLM call failed: {exc}", file=sys.stderr)
         raise
 
-    printable = response if isinstance(response, dict) else response.__dict__
+    def _make_serializable(obj):
+        """Recursively convert objects to JSON-serializable Python types."""
+        # Primitives
+        if obj is None or isinstance(obj, (str, int, float, bool)):
+            return obj
+        # Containers
+        if isinstance(obj, dict):
+            return {k: _make_serializable(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple, set)):
+            return [_make_serializable(v) for v in obj]
+        # Common library methods
+        if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
+            return _make_serializable(obj.to_dict())
+        if hasattr(obj, "dict") and callable(getattr(obj, "dict")):
+            return _make_serializable(obj.dict())
+        # Fallback to __dict__ for simple objects
+        if hasattr(obj, "__dict__"):
+            return _make_serializable(vars(obj))
+        # Last resort: string representation
+        try:
+            return str(obj)
+        except Exception:
+            return repr(obj)
+
+    printable = _make_serializable(response)
     print(json.dumps(printable, indent=2))
 
 

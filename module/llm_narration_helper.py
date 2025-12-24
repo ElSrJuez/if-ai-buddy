@@ -136,7 +136,7 @@ class CompletionsHelper:
             "diagnostics": {
                 "latency_seconds": latency,
                 "tokens": tokens,
-                "model": self.config.get("llm_model_alias", "unknown"),
+                "model": self.config["llm_model_alias"],
             },
         }
         return result
@@ -147,7 +147,7 @@ class CompletionsHelper:
         on_chunk: Callable[[str], None] | None,
         loop: asyncio.AbstractEventLoop,
     ) -> tuple[str, Any]:
-        model = self.config.get("llm_model_alias", "gpt-4o")
+        model = self.config["llm_model_alias"]
         temperature = self.config.get("llm_temperature", 0.7)
         max_tokens = self.config.get("max_tokens", 1000)
 
@@ -193,7 +193,7 @@ class CompletionsHelper:
             raise ValueError("OpenAI provider requires OpenAI client instance")
 
         return self.llm_client.chat.completions.create(
-            model=self.config.get("llm_model_alias", "gpt-4"),
+            model=self.config["llm_model_alias"],
             messages=messages,
             temperature=self.config.get("llm_temperature", 0.7),
             max_tokens=self.config.get("max_tokens", 1000),
@@ -201,7 +201,7 @@ class CompletionsHelper:
 
     def _call_foundry(self, messages: list[dict[str, str]]) -> Any:
         return self.llm_client.chat(
-            model=self.config.get("llm_model_alias", "Phi-3.5-mini-instruct-cuda-gpu"),
+            model=self.config["llm_model_alias"],
             messages=messages,
             temperature=self.config.get("llm_temperature", 0.7),
             max_tokens=self.config.get("max_tokens", 1000),
