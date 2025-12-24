@@ -9,7 +9,7 @@ from typing import Callable
 
 from module import my_config, my_logging
 
-from rich.console import RenderableType
+from textual.app import RenderableType
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal
 from textual.widgets import (
@@ -110,7 +110,7 @@ class TranscriptLog(Static):
 
 
 class NarrationPanel(Static):
-    """Right column: AI narration and future tabs."""
+    """Right column showing narration history and hints."""
 
     DEFAULT_CSS = """
     NarrationPanel {
@@ -122,80 +122,65 @@ class NarrationPanel(Static):
 
     def __init__(self) -> None:
         super().__init__()
-        self._stream_buffer: str = ""
         self._streaming: bool = False
-        # Use RichLog for both streaming + history so the stream is scrollable
-        # and doesn't reflow the layout by growing a Static at the top.
-        self._stream_log = RichLog(markup=True, highlight=False, wrap=True)
+        self._stream_buffer: str = ""
+        self._lines: list[str] = []
         self._narration_log = RichLog(markup=True, highlight=False, wrap=True)
 
-        # Hide the stream log by default; show it only during streaming.
-        self._stream_log.styles.display = "none"
-
     def compose(self) -> ComposeResult:
-        # Stream log is shown only during streaming.
-        yield self._stream_log
         yield self._narration_log
 
+    def _refresh(self) -> None:
+        self._narration_log.clear()
+        for line in self._lines:
+            self._narration_log.write(line)
+
     def begin_stream(self) -> None:
-        """Begin a narration streaming session."""
+        """Signal that streaming is starting."""
         self._streaming = True
         self._stream_buffer = ""
-        self._narration_log.styles.display = "none"
-        self._stream_log.styles.display = "block"
-        self._stream_log.clear()
+        self._lines.append("")
+        self._refresh()
 
     def append_stream(self, text: str) -> None:
-        """Append streamed narration text.
-
-        We update the stream view in-place so streaming does not spam the log
-        with one line per token.
-        """
-        if not self._streaming:
-            # Treat as a non-streaming write.
-            self.add_narration(text)
-            return
+        """Append streamed narration text directly to the history log."""
         if not text:
             return
         self._stream_buffer += text
-        # Rewrite the streaming view in-place (single log entry) so we don't spam per token.
-        self._stream_log.clear()
-        self._stream_log.write(self._stream_buffer)
+        if self._lines:
+            self._lines[-1] = self._stream_buffer
+        else:
+            self._lines.append(self._stream_buffer)
+        self._refresh()
 
     def end_stream(self, final_text: str | None = None) -> None:
-        """End a narration streaming session.
-
-        Commits the final narration into the history log once.
-        """
-        committed = (final_text if final_text is not None else self._stream_buffer).strip()
+        """Finalize streaming by recording any leftover narration."""
+        if final_text and not self._stream_buffer:
+            self._lines.append(final_text.strip())
+        elif final_text and self._lines:
+            self._lines[-1] = final_text.strip()
+        if self._lines and not self._lines[-1].strip():
+            self._lines.pop()
         self._streaming = False
         self._stream_buffer = ""
-        self._stream_log.clear()
-        self._stream_log.styles.display = "none"
-        self._narration_log.styles.display = "block"
-        if committed:
-            self._narration_log.write(committed)
+        self._refresh()
 
     def add_narration(self, text: str) -> None:
         """Add narration to the panel."""
-        if self._streaming:
-            # During streaming, update in-place rather than spamming the log.
-            self.append_stream(text)
-            return
-        self._narration_log.write(text)
+        self._lines.append(text)
+        self._refresh()
 
     def add_hint(self, text: str) -> None:
         """Add a hint or guidance line."""
-        self._narration_log.write(f"[dim]{text}[/dim]")
+        self._lines.append(f"[dim]{text}[/dim]")
+        self._refresh()
 
     def reset(self) -> None:
         """Clear all narration content."""
-        self._narration_log.clear()
+        self._lines.clear()
         self._stream_buffer = ""
         self._streaming = False
-        self._stream_log.clear()
-        self._stream_log.styles.display = "none"
-        self._narration_log.styles.display = "block"
+        self._refresh()
         my_logging.system_debug("Narration panel cleared")
 
 
