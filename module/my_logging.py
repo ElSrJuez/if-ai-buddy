@@ -15,8 +15,10 @@ _ENGINE_TEMPLATE = ""
 _COMPLETIONS_TEMPLATE = ""
 _MEMORY_TEMPLATE = ""
 _COMMON_LLM_TEMPLATE = ""
+_COMMON_LLM_SIMPLE_TEMPLATE = ""
 _MEMORY_LOG_PATH = ""
 _COMMON_LLM_LOG_PATH = ""
+_COMMON_LLM_SIMPLE_LOG_PATH = ""
 _current_player = ""
 _debug_enabled = False
 
@@ -29,6 +31,7 @@ rest_logger = logging.getLogger("myrestlog")
 gameapi_logger = logging.getLogger("mygameapilog")
 memory_logger = logging.getLogger("mymemorylog")
 common_llm_logger = logging.getLogger("mycommonllmlog")
+common_llm_simple_logger = logging.getLogger("mycommonllmsimplelog")
 
 
 def init(
@@ -40,7 +43,7 @@ def init(
     """Initialize logging: ensures config-driven paths and log levels."""
     global _config, _SYSTEM_LOG_PATH, _GAME_LOG_PATH, _ENGINE_LOG_PATH, _COMPLETIONS_LOG_PATH
     global _REST_LOG_PATH, _GAMEAPI_LOG_PATH, _ENGINE_TEMPLATE, _COMPLETIONS_TEMPLATE
-    global _MEMORY_TEMPLATE, _COMMON_LLM_TEMPLATE
+    global _MEMORY_TEMPLATE, _COMMON_LLM_TEMPLATE, _COMMON_LLM_SIMPLE_TEMPLATE
     global _current_player, _debug_enabled
     if config is None:
         if not config_file:
@@ -64,6 +67,7 @@ def init(
     _COMPLETIONS_TEMPLATE = str(_require("llm_completion_jsonl_filename_template"))
     _MEMORY_TEMPLATE = str(_require("memory_jsonl_filename_template"))
     _COMMON_LLM_TEMPLATE = str(_require("common_llm_layer_jsonl"))
+    _COMMON_LLM_SIMPLE_TEMPLATE = str(_require("common_llm_simple_interaction_history_jsonl"))
 
     _init_player_scoped_logs(player_name)
 
@@ -79,30 +83,34 @@ def init(
 
 
 def _init_player_scoped_logs(player_name: str) -> None:
-    global _ENGINE_LOG_PATH, _COMPLETIONS_LOG_PATH, _MEMORY_LOG_PATH, _COMMON_LLM_LOG_PATH, _current_player
-    if not _ENGINE_TEMPLATE or not _COMPLETIONS_TEMPLATE or not _MEMORY_TEMPLATE or not _COMMON_LLM_TEMPLATE:
+    global _ENGINE_LOG_PATH, _COMPLETIONS_LOG_PATH, _MEMORY_LOG_PATH, _COMMON_LLM_LOG_PATH, _COMMON_LLM_SIMPLE_LOG_PATH, _current_player
+    if not _ENGINE_TEMPLATE or not _COMPLETIONS_TEMPLATE or not _MEMORY_TEMPLATE or not _COMMON_LLM_TEMPLATE or not _COMMON_LLM_SIMPLE_TEMPLATE:
         raise RuntimeError("Logging templates have not been initialized")
 
     engine_path = _format_template(_ENGINE_TEMPLATE, player_name)
     completions_path = _format_template(_COMPLETIONS_TEMPLATE, player_name)
     memory_path = _format_template(_MEMORY_TEMPLATE, player_name)
     common_llm_path = _format_template(_COMMON_LLM_TEMPLATE, player_name)
+    common_llm_simple_path = _format_template(_COMMON_LLM_SIMPLE_TEMPLATE, player_name)
 
     _ensure_parent_dir(engine_path)
     _ensure_parent_dir(completions_path)
     _ensure_parent_dir(memory_path)
     _ensure_parent_dir(common_llm_path)
+    _ensure_parent_dir(common_llm_simple_path)
 
     _ENGINE_LOG_PATH = engine_path
     _COMPLETIONS_LOG_PATH = completions_path
     _MEMORY_LOG_PATH = memory_path
     _COMMON_LLM_LOG_PATH = common_llm_path
+    _COMMON_LLM_SIMPLE_LOG_PATH = common_llm_simple_path
     _current_player = player_name
 
     _configure_logger(engine_logger, _ENGINE_LOG_PATH, logging.DEBUG)
     _configure_logger(completions_logger, _COMPLETIONS_LOG_PATH, logging.DEBUG)
     _configure_logger(memory_logger, _MEMORY_LOG_PATH, logging.DEBUG)
     _configure_logger(common_llm_logger, _COMMON_LLM_LOG_PATH, logging.DEBUG)
+    _configure_logger(common_llm_simple_logger, _COMMON_LLM_SIMPLE_LOG_PATH, logging.DEBUG)
 
 
 def update_player_logs(player_name: str) -> None:
@@ -244,6 +252,13 @@ def get_common_llm_logger() -> logging.Logger:
     fallback = _COMMON_LLM_LOG_PATH or "log/common_llm_layer.jsonl"
     _ensure_logger_ready(common_llm_logger, fallback)
     return common_llm_logger
+
+
+def get_common_llm_simple_interaction_logger() -> logging.Logger:
+    """Return the dedicated logger for compact prompt/response interaction history."""
+    fallback = _COMMON_LLM_SIMPLE_LOG_PATH or "log/common_llm_simple_interaction_history.jsonl"
+    _ensure_logger_ready(common_llm_simple_logger, fallback)
+    return common_llm_simple_logger
 
 
 def _game_log_json(data: dict) -> None:

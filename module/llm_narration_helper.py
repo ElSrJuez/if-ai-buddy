@@ -80,6 +80,18 @@ class CompletionsHelper:
                 "job_metadata": metadata,
             })
 
+            # Compact, query-friendly interaction history (no streaming internals).
+            common_llm_layer.log_simple_interaction_history(
+                request={
+                    "provider": self.config.get("llm_provider", "unknown"),
+                    "model": model,
+                },
+                messages=messages,
+                response_text=narration_text,
+                normalized_payload=payload,
+                job_metadata=metadata,
+            )
+
             return result
 
         except Exception as exc:
@@ -106,6 +118,18 @@ class CompletionsHelper:
                 "normalized_payload": payload,
                 "job_metadata": metadata,
             })
+
+            common_llm_layer.log_simple_interaction_history(
+                request={
+                    "provider": self.config.get("llm_provider", "unknown"),
+                    "model": model,
+                },
+                messages=messages,
+                response_text=payload.get("narration"),
+                normalized_payload=payload,
+                job_metadata=metadata,
+                error=str(exc),
+            )
             return {
                 "payload": payload,
                 "raw_response": None,
