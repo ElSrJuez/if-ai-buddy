@@ -256,7 +256,7 @@ def get_common_llm_logger() -> logging.Logger:
 
 def get_common_llm_simple_interaction_logger() -> logging.Logger:
     """Return the dedicated logger for compact prompt/response interaction history."""
-    fallback = _COMMON_LLM_SIMPLE_LOG_PATH or "log/common_llm_simple_interaction_history.jsonl"
+    fallback = _COMMON_LLM_SIMPLE_LOG_PATH or "log/common_llm_simple_interaction_history.log"
     _ensure_logger_ready(common_llm_simple_logger, fallback)
     return common_llm_simple_logger
 

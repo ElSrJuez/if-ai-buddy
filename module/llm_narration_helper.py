@@ -88,7 +88,6 @@ class CompletionsHelper:
                 },
                 messages=messages,
                 response_text=narration_text,
-                normalized_payload=payload,
                 job_metadata=metadata,
             )
 
@@ -125,8 +124,7 @@ class CompletionsHelper:
                     "model": model,
                 },
                 messages=messages,
-                response_text=payload.get("narration"),
-                normalized_payload=payload,
+                response_text=None,
                 job_metadata=metadata,
                 error=str(exc),
             )

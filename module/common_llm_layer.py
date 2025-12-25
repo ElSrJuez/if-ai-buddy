@@ -13,7 +13,6 @@ This module intentionally does not hide failures or fabricate API responses.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Mapping
@@ -309,18 +308,13 @@ def log_simple_interaction_history(
     request: Mapping[str, Any],
     messages: list[Mapping[str, Any]] | None,
     response_text: str | None,
-    normalized_payload: Mapping[str, Any] | None = None,
     job_metadata: Mapping[str, Any] | None = None,
     error: str | None = None,
 ) -> None:
-    """Write a compact prompt/response record for later analysis.
+    """Write a plain-text prompt/response record for later analysis.
 
-    Design intent:
-    - Focus on *useful game data* rather than streaming internals.
-    - Capture prompt context in a structured way when possible.
-    - Keep it query-friendly: one JSON object per LLM interaction.
-
-    This logger is separate from the full-fidelity stream trace.
+    Objective: capture what we actually send to the LLM engine (messages) and the
+    resulting text (as received/streamed) without adding any JSON structure.
     """
 
     logger = my_logging.get_common_llm_simple_interaction_logger()
@@ -328,111 +322,44 @@ def log_simple_interaction_history(
     model = str(request.get("model", "unknown"))
     provider = str(request.get("provider", "unknown"))
 
-    system_text, user_text = _extract_system_and_user(messages)
-    prompt_sections = _extract_narration_prompt_sections(user_text) if user_text else {}
+    lines: list[str] = []
+    lines.append("----- LLM SIMPLE INTERACTION -----")
+    lines.append(f"timestamp: {_timestamp()}")
+    lines.append(f"provider: {provider}")
+    lines.append(f"model: {model}")
 
-    entry: dict[str, Any] = {
-        "timestamp": _timestamp(),
-        "provider": provider,
-        "model": model,
-        "job": dict(job_metadata) if job_metadata else {},
-        "prompt": {
-            "system": system_text or "",
-            "sections": prompt_sections,
-        },
-        "response": {
-            "text": response_text or "",
-            "payload": dict(normalized_payload) if normalized_payload else {},
-        },
-    }
+    if job_metadata:
+        lines.append("job_metadata:")
+        for k, v in job_metadata.items():
+            lines.append(f"  {k}: {v}")
 
     if error:
-        entry["error"] = error
+        lines.append(f"error: {error}")
 
-    # If we failed to parse the prompt into sections, preserve a bounded preview.
-    if not prompt_sections and user_text:
-        entry["prompt"]["user_preview"] = _truncate(user_text, 2_000)
+    lines.append("")
+    lines.append("PROMPT (exact messages):")
+    if not messages:
+        lines.append("(no messages)")
+    else:
+        for idx, msg in enumerate(messages):
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            lines.append(f"[message {idx}] role={role}")
+            # Intentionally do not serialize/pretty-print; keep raw text.
+            lines.append(str(content) if content is not None else "")
+            lines.append("")
 
-    logger.info(json.dumps(entry, ensure_ascii=False))
+    lines.append("RESPONSE (exact text):")
+    if response_text is None:
+        lines.append("(no response_text)")
+    else:
+        lines.append(response_text)
+    lines.append("----- END -----")
+    lines.append("")
+
+    logger.info("\n".join(lines))
     for handler in logger.handlers:
         handler.flush()
-
-
-def _extract_system_and_user(
-    messages: list[Mapping[str, Any]] | None,
-) -> tuple[str | None, str | None]:
-    if not messages:
-        return None, None
-    system_text = None
-    user_text = None
-    for msg in messages:
-        role = str(msg.get("role", "")).lower()
-        content = msg.get("content")
-        if not isinstance(content, str):
-            continue
-        if role == "system" and system_text is None:
-            system_text = content
-        elif role == "user" and user_text is None:
-            user_text = content
-        if system_text is not None and user_text is not None:
-            break
-    return system_text, user_text
-
-
-_SECTION_HEADERS = [
-    "Latest transcript delta",
-    "Current scene",
-    "Newly notable",
-    "Narrator already said",
-    "Player gear / clues",
-    "Recently visited",
-]
-
-
-def _extract_narration_prompt_sections(user_prompt: str) -> dict[str, str]:
-    """Best-effort parsing of the narration prompt template into named sections."""
-    if not user_prompt:
-        return {}
-
-    # Normalize line endings so parsing is stable across platforms.
-    text = user_prompt.replace("\r\n", "\n")
-
-    # The template uses headings like: "=== Current scene ===".
-    # We parse by splitting on those headings.
-    sections: dict[str, str] = {}
-
-    # Find all headings positions.
-    matches: list[tuple[int, int, str]] = []
-    for header in _SECTION_HEADERS:
-        pattern = rf"^===\s*{re.escape(header)}\s*===\s*$"
-        for m in re.finditer(pattern, text, flags=re.MULTILINE):
-            matches.append((m.start(), m.end(), header))
-
-    if not matches:
-        return {}
-
-    matches.sort(key=lambda t: t[0])
-
-    for i, (start, end, header) in enumerate(matches):
-        next_start = matches[i + 1][0] if i + 1 < len(matches) else len(text)
-        body = text[end:next_start].strip("\n")
-        body = body.strip()
-        # Keep sections bounded; this is a compact history file.
-        sections[_snake(header)] = _truncate(body, 4_000)
-
-    return sections
-
-
-def _snake(header: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", header.strip().lower()).strip("_")
-
-
-def _truncate(text: str, limit: int) -> str:
-    if text is None:
-        return ""
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3].rstrip() + "..."
 
 
 def to_jsonable(obj: Any) -> Any:
