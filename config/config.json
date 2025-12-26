@@ -14,11 +14,23 @@
   "narration_context_recent_inventory": 6,
   "narration_context_max_transcript_chars": 800,
   "stream_only_narration": true,
-  "max_tokens": 1000,
-  "llm_model_alias": "Phi-4-mini-instruct-cuda-gpu",
+  
   "llm_provider": "foundry",
-  "llm_temperature": 0.4,
-  "openai_api_key_env": "OPENAI_API_KEY",
+  
+  "llm_model_max_tokens_foundry": 1000,
+  "llm_model_temperature_foundry": 0.4,
+  "llm_model_repetition_penalty_foundry": 1.2,
+  "llm_model_alias_foundry": "Phi-4-mini-instruct-cuda-gpu",
+  "llm_model_openai_api_key_foundry": "OPENAI_API_KEY",
+  "llm_model_endpoint_foundry": "NA",
+  
+  "llm_model_max_tokens_otherai": 1000,
+  "llm_model_temperature_otherai": 0.4,
+  "llm_model_repetition_penalty_otherai": 1.2,
+  "llm_model_alias_otherai": "Qwen3-1.7B-GGUF",
+  "llm_model_openai_api_key_otherai": "lemonade",
+  "llm_model_endpoint_otherai": "http://homeserver.local:8000/api/v1",
+  
   "dfrotz_base_url": "http://phantompi4:8889",
   "default_game": "zork1r119",
   "player_name": "Adventurer",
