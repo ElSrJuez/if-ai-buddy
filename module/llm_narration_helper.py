@@ -6,8 +6,6 @@ import asyncio
 import time
 from typing import Any, Callable
 
-from openai import OpenAI
-
 from module import my_logging
 from module import common_llm_layer
 from module import config_registry
@@ -22,6 +20,7 @@ class CompletionsHelper:
     def __init__(self, config: dict[str, Any], response_schema: dict[str, Any]) -> None:
         self.config = config
         self.response_schema = response_schema
+        self.llm_settings = config_registry.resolve_llm_settings(config)
         self.llm_client = create_llm_client(config)
 
     # ------------------------------------------------------------------
@@ -38,30 +37,21 @@ class CompletionsHelper:
         start_time = time.time()
         messages = job.messages
         metadata = job.metadata or {}
-        provider = config_registry.llm_provider(self.config)
+        provider = self.llm_settings.provider
+        model = self.llm_settings.alias
 
         try:
-            if provider == "openai":
-                narration_text, raw_response = await self._stream_openai(
-                    messages,
-                    on_chunk,
-                    loop,
-                )
-            elif provider == "foundry":
-                narration_text, raw_response = await self._stream_foundry(
-                    messages,
-                    on_chunk,
-                    loop,
-                )
-            else:
-                raise NotImplementedError(f"llm_provider '{provider}' is not wired yet")
+            narration_text, raw_response = await self._stream_chat(
+                messages,
+                on_chunk,
+                loop,
+            )
 
             payload = normalize_ai_payload(
                 {"narration": narration_text}, self.response_schema
             )
             tokens = self._extract_token_count(raw_response)
             latency = time.time() - start_time
-            model = str(config_registry.require_llm_value(self.config, "alias"))
 
             result = {
                 "payload": payload,
@@ -102,7 +92,6 @@ class CompletionsHelper:
             if on_chunk:
                 loop.call_soon_threadsafe(on_chunk, "(Narration unavailable)")
             latency = time.time() - start_time
-            model = str(config_registry.require_llm_value(self.config, "alias"))
             fallback_payload = {
                 "narration": "The game continues...",
                 "game_intent": "Unknown",
@@ -147,13 +136,7 @@ class CompletionsHelper:
         """Synchronous fallback for legacy callers (non-streaming)."""
         messages = job.messages
 
-        provider = config_registry.llm_provider(self.config)
-        if provider == "openai":
-            raw_response = self._call_openai(messages)
-        elif provider == "foundry":
-            raw_response = self._call_foundry(messages)
-        else:
-            raise NotImplementedError(f"llm_provider '{provider}' is not wired yet")
+        raw_response = self._call_chat(messages)
 
         payload = self._parse_response(raw_response)
         payload = normalize_ai_payload(payload, self.response_schema)
@@ -166,78 +149,20 @@ class CompletionsHelper:
             "diagnostics": {
                 "latency_seconds": latency,
                 "tokens": tokens,
-                "model": str(config_registry.require_llm_value(self.config, "alias")),
+                "model": self.llm_settings.alias,
             },
         }
         return result
 
-    async def _stream_openai(
+    async def _stream_chat(
         self,
         messages: list[dict[str, str]],
         on_chunk: Callable[[str], None] | None,
         loop: asyncio.AbstractEventLoop,
     ) -> tuple[str, Any]:
-        model = self.config["llm_model_alias"]
-        temperature = self.config.get("llm_temperature", 0.7)
-        max_tokens = self.config.get("max_tokens", 1000)
-
-        def _job() -> tuple[str, Any]:
-            stream = self.llm_client.responses.stream(
-                model=model,
-                input={"messages": messages},
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-                max_tokens=max_tokens,
-            )
-            with stream as events:
-                def _emit(text: str) -> None:
-                    if on_chunk:
-                        loop.call_soon_threadsafe(on_chunk, text)
-
-                streamed_text, base_summary, raw_parts = common_llm_layer.stream_text_from_iterable(
-                    events,
-                    on_text=_emit,
-                )
-                final_response = events.get_final_response()
-
-            summary = common_llm_layer.StreamSummary(
-                model=model,
-                streamed_text=streamed_text,
-                chunk_count=base_summary.chunk_count,
-                text_chunk_count=base_summary.text_chunk_count,
-                ignored_chunk_count=base_summary.ignored_chunk_count,
-                stream_format=base_summary.stream_format,
-                final_channel_seen=base_summary.final_channel_seen,
-            )
-
-            common_llm_layer.log_stream_finished(
-                request={
-                    "provider": "openai",
-                    "model": model,
-                    "input": {"messages": messages},
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens,
-                    "max_tokens": max_tokens,
-                    "stream": True,
-                },
-                streamed_text=streamed_text,
-                response=final_response,
-                raw_parts=raw_parts,
-                summary=summary,
-            )
-            return streamed_text, final_response
-
-        return await asyncio.to_thread(_job)
-
-    async def _stream_foundry(
-        self,
-        messages: list[dict[str, str]],
-        on_chunk: Callable[[str], None] | None,
-        loop: asyncio.AbstractEventLoop,
-    ) -> tuple[str, Any]:
-        model = str(config_registry.require_llm_value(self.config, "alias"))
-        temperature = float(config_registry.require_llm_value(self.config, "temperature"))
-        max_tokens = int(config_registry.require_llm_value(self.config, "max_tokens"))
+        model = self.llm_settings.alias
+        temperature = self.llm_settings.temperature
+        max_tokens = self.llm_settings.max_tokens
 
         def _job() -> tuple[str, Any]:
             stream = self.llm_client.stream_chat(
@@ -268,7 +193,7 @@ class CompletionsHelper:
 
             common_llm_layer.log_stream_finished(
                 request={
-                    "provider": "foundry",
+                    "provider": self.llm_settings.provider,
                     "model": model,
                     "messages": messages,
                     "temperature": temperature,
@@ -285,23 +210,12 @@ class CompletionsHelper:
 
         return await asyncio.to_thread(_job)
 
-    def _call_openai(self, messages: list[dict[str, str]]) -> Any:
-        if not isinstance(self.llm_client, OpenAI):
-            raise ValueError("OpenAI provider requires OpenAI client instance")
-
-        return self.llm_client.chat.completions.create(
-            model=self.config["llm_model_alias"],
-            messages=messages,
-            temperature=self.config.get("llm_temperature", 0.7),
-            max_tokens=self.config.get("max_tokens", 1000),
-        )
-
-    def _call_foundry(self, messages: list[dict[str, str]]) -> Any:
+    def _call_chat(self, messages: list[dict[str, str]]) -> Any:
         return self.llm_client.chat(
-            model=str(config_registry.require_llm_value(self.config, "alias")),
+            model=self.llm_settings.alias,
             messages=messages,
-            temperature=float(config_registry.require_llm_value(self.config, "temperature")),
-            max_tokens=int(config_registry.require_llm_value(self.config, "max_tokens")),
+            temperature=self.llm_settings.temperature,
+            max_tokens=self.llm_settings.max_tokens,
         )
 
     def _parse_response(self, raw_response: Any) -> dict[str, Any]:

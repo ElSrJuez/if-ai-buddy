@@ -12,6 +12,7 @@ from openai import BadRequestError
 
 from module import my_config, my_logging
 from module import common_llm_layer
+from module import config_registry
 from module.llm_factory_FoundryLocal import create_llm_client
 
 
@@ -67,6 +68,7 @@ def main() -> None:
         my_logging.init(player_name=str(config.get("player_name", "Adventurer")), config=config)
 
     llm = create_llm_client(config)
+    settings = config_registry.resolve_llm_settings(config)
 
     messages = [
         {"role": "system", "content": "You are a concise narrator."},
@@ -74,10 +76,10 @@ def main() -> None:
     ]
 
     request_kwargs = {
-        "model": args.model or config.get("llm_model_alias"),
+        "model": args.model or settings.alias,
         "messages": messages,
-        "temperature": 0.2,
-        "max_tokens": 128,
+        "temperature": settings.temperature,
+        "max_tokens": settings.max_tokens,
     }
 
     if args.use_schema:
@@ -98,26 +100,17 @@ def main() -> None:
     print(json.dumps({k: v for k, v in request_kwargs.items() if k != "messages"}, indent=2))
 
     try:
-        provider = config.get("llm_provider")
         temperature = request_kwargs["temperature"]
         max_tokens = request_kwargs["max_tokens"]
         model = request_kwargs["model"]
-        if provider == "foundry" and hasattr(llm, "stream_chat"):
-            response = _stream_foundry(
-                llm,
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        else:
-            response = _stream_openai(
-                llm,
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+        response = _stream_chat(
+            llm,
+            provider=settings.provider,
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     except BadRequestError as exc:
         print("LLM call failed with 400 Bad Request", file=sys.stderr)
         print("Response headers:", file=sys.stderr)
@@ -165,9 +158,10 @@ def _extract_stream_chunk(event: Any) -> str | None:
     return common_llm_layer.extract_stream_text(event)
 
 
-def _stream_foundry(
+def _stream_chat(
     adapter: Any,
     *,
+    provider: str,
     model: str,
     messages: list[dict[str, str]],
     temperature: float,
@@ -180,6 +174,7 @@ def _stream_foundry(
         max_tokens=max_tokens,
     )
     request = {
+        "provider": provider,
         "model": model,
         "messages": messages,
         "temperature": temperature,
@@ -229,85 +224,7 @@ def _stream_foundry(
     )
 
     return {
-        "model": model,
-        "streamed_text": streamed_text,
-        "stream": {
-            "format": summary.stream_format,
-            "final_channel_seen": summary.final_channel_seen,
-            "chunk_count": summary.chunk_count,
-            "text_chunk_count": summary.text_chunk_count,
-            "ignored_chunk_count": summary.ignored_chunk_count,
-        },
-    }
-
-
-def _stream_openai(
-    client: Any,
-    *,
-    model: str,
-    messages: list[dict[str, str]],
-    temperature: float,
-    max_tokens: int,
-) -> Any:
-    request = {
-        "model": model,
-        "input": {"messages": messages},
-        "temperature": temperature,
-        "max_output_tokens": max_tokens,
-        "max_tokens": max_tokens,
-        "stream": True,
-    }
-
-    def _on_text(text: str) -> None:
-        print(text, end="", flush=True)
-
-    stream = client.responses.create(
-        model=model,
-        input={"messages": messages},
-        temperature=temperature,
-        max_output_tokens=max_tokens,
-        max_tokens=max_tokens,
-        stream=True,
-    )
-
-    streamed_text, base_summary, raw_parts = common_llm_layer.stream_text_from_iterable(
-        stream,
-        on_text=_on_text,
-    )
-    summary = common_llm_layer.StreamSummary(
-        model=model,
-        streamed_text=streamed_text,
-        chunk_count=base_summary.chunk_count,
-        text_chunk_count=base_summary.text_chunk_count,
-        ignored_chunk_count=base_summary.ignored_chunk_count,
-        stream_format=base_summary.stream_format,
-        final_channel_seen=base_summary.final_channel_seen,
-    )
-    print()
-
-    if not streamed_text:
-        common_llm_layer.log_stream_finished(
-            request=request,
-            streamed_text=streamed_text,
-            response=None,
-            raw_parts=raw_parts,
-            summary=summary,
-        )
-        print(
-            "[warn] Stream completed but produced no user-visible text. "
-            f"stream_format={summary.stream_format} final_channel_seen={summary.final_channel_seen}",
-            file=sys.stderr,
-        )
-
-    common_llm_layer.log_stream_finished(
-        request=request,
-        streamed_text=streamed_text,
-        response=None,
-        raw_parts=raw_parts,
-        summary=summary,
-    )
-
-    return {
+        "provider": provider,
         "model": model,
         "streamed_text": streamed_text,
         "stream": {

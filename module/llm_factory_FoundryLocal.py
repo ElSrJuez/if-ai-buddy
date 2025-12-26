@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from foundry_local import FoundryLocalManager
 from openai import OpenAI
 
 from module import config_registry
+from module import llm_factory_otheropenai
 
 
 logger = logging.getLogger(__name__)
@@ -116,29 +116,16 @@ def create_llm_client(config: dict[str, Any]) -> Any:
     Raises:
         ValueError: If provider is unknown or required config is missing.
     """
-    provider = str(config.get("llm_provider", "")).strip()
+    provider = config_registry.llm_provider(config)
 
-    if provider == "openai":
-        api_key = config.get("openai_api_key")
-        if not api_key:
-            env_var = config.get("openai_api_key_env", "OPENAI_API_KEY")
-            api_key = os.getenv(env_var)
-        
-        if not api_key:
-            raise ValueError(
-                "OpenAI API key not found. Set 'openai_api_key' in config or "
-                f"set the {env_var} environment variable."
-            )
-        
-        return OpenAI(api_key=api_key)
-    
-    elif provider == "foundry":
+    if provider == "foundry":
         return FoundryChatAdapter(config)
 
-    elif provider == "otheropenai":
-        raise NotImplementedError("llm_provider 'otheropenai' is not wired yet")
+    if provider == "otheropenai":
+        return llm_factory_otheropenai.create_otheropenai_client(config)
     
     else:
+        # llm_provider() already validates supported values; keep this for safety.
         raise ValueError(f"Unknown LLM provider: {provider}")
 
 

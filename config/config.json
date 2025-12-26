@@ -15,7 +15,7 @@
   "narration_context_max_transcript_chars": 800,
   "stream_only_narration": true,
   
-  "llm_provider": "foundry",
+  "llm_provider": "otheropenai",
 
   "llm_model_max_tokens_foundry": 1000,
   "llm_model_temperature_foundry": 0.4,

@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, MutableMapping
 
 __all__ = [
     "ConfigValidationError",
     "apply_aliases",
+    "LlmSettings",
+    "llm_provider",
+    "llm_provider_key",
+    "require_llm_value",
+    "resolve_llm_settings",
     "required_keys",
     "validate_config",
     "resolve_path",
@@ -17,6 +23,16 @@ __all__ = [
 
 class ConfigValidationError(ValueError):
     """Raised when required configuration keys are missing."""
+
+
+@dataclass(frozen=True, slots=True)
+class LlmSettings:
+    provider: str
+    alias: str
+    temperature: float
+    max_tokens: int
+    endpoint: str | None = None
+    openai_api_key: str | None = None
 
 
 SECTION_KEYS: dict[str, set[str]] = {
@@ -126,8 +142,12 @@ def require_llm_value(config: Mapping[str, object], field: str) -> object:
 def _validate_llm_provider_keys(config: Mapping[str, object]) -> None:
     provider = llm_provider(config)
 
-    # Only require what the current code path actually consumes.
-    required_fields = ("alias", "temperature", "max_tokens")
+    if provider == "foundry":
+        required_fields = ("alias", "temperature", "max_tokens")
+    elif provider == "otheropenai":
+        required_fields = ("alias", "temperature", "max_tokens", "endpoint", "openai_api_key")
+    else:
+        raise ConfigValidationError(f"Unsupported llm_provider '{provider}'")
 
     missing: list[str] = []
     for field in required_fields:
@@ -139,6 +159,49 @@ def _validate_llm_provider_keys(config: Mapping[str, object]) -> None:
             "Missing required config keys for llm_provider "
             f"'{provider}': {', '.join(sorted(missing))}"
         )
+
+
+def resolve_llm_settings(config: Mapping[str, object]) -> LlmSettings:
+    """Resolve provider-scoped LLM settings in a single, strict place.
+
+    No defaults: missing keys or invalid types raise ConfigValidationError.
+    """
+
+    provider = llm_provider(config)
+
+    alias = str(require_llm_value(config, "alias")).strip()
+    if not alias:
+        raise ConfigValidationError("Resolved LLM alias is empty")
+
+    try:
+        temperature = float(require_llm_value(config, "temperature"))
+    except Exception as exc:  # noqa: BLE001
+        raise ConfigValidationError(f"Invalid LLM temperature: {exc}")
+
+    try:
+        max_tokens = int(require_llm_value(config, "max_tokens"))
+    except Exception as exc:  # noqa: BLE001
+        raise ConfigValidationError(f"Invalid LLM max_tokens: {exc}")
+
+    endpoint: str | None = None
+    openai_api_key: str | None = None
+
+    if provider == "otheropenai":
+        endpoint = str(require_llm_value(config, "endpoint")).strip()
+        if not endpoint:
+            raise ConfigValidationError("Resolved LLM endpoint is empty")
+        openai_api_key = str(require_llm_value(config, "openai_api_key")).strip()
+        if not openai_api_key:
+            raise ConfigValidationError("Resolved otheropenai api_key is empty")
+
+    return LlmSettings(
+        provider=provider,
+        alias=alias,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        endpoint=endpoint,
+        openai_api_key=openai_api_key,
+    )
 
 
 def resolve_path(config: Mapping[str, object], key: str, *, project_root: Path | None = None) -> Path:
