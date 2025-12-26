@@ -354,7 +354,9 @@ class GameController:
         """
 
         if command:
-            self._app.add_transcript_output(self._escape_markup(f"> {command}"))
+            self._app.add_transcript_output(
+                f"[dim]{self._escape_markup(f'> {command}')}[/dim]"
+            )
 
         if is_exception:
             msg = exception_message or "Engine error"
