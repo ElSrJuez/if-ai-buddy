@@ -45,7 +45,7 @@ SECTION_KEYS: dict[str, set[str]] = {
     "llm": {
         "llm_provider",
         "llm_narration_system_prompt",
-        "llm_narration_user_prompt_template",
+        "llm_narration_user_prompt_template_spec_path",
         "llm_memory_system_prompt",
         "llm_memory_user_prompt_template",
     },
@@ -71,8 +71,7 @@ ALIAS_GROUPS: tuple[set[str], ...] = (
     {"ai_engine_schema_path", "response_schema_path"},
     {"llm_narration_system_prompt", "system_prompt"},
     {"llm_memory_system_prompt", "llm_narration_system_prompt", "system_prompt"},
-    {"llm_narration_user_prompt_template", "user_prompt_template"},
-    {"llm_memory_user_prompt_template", "llm_narration_user_prompt_template", "user_prompt_template"},
+    {"llm_memory_user_prompt_template", "user_prompt_template"},
 )
 
 

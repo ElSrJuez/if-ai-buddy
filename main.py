@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 from module import my_config, my_logging
 from module.config_registry import resolve_path, resolve_template_path
@@ -36,14 +37,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def _purge_run_data(config: dict[str, Any]) -> None:
     project_root = Path(__file__).resolve().parent
-    player = config.get("player_name", "Adventurer")
+    # Config validation requires player_name; keep a safe fallback anyway.
+    player = str(config.get("player_name") or "Adventurer")
 
+    # Only delete what the config explicitly points to.
     path_keys = [
         "system_log",
         "gameapi_jsonl",
         "rest_jsonl",
     ]
+
+    # Paths with {player} formatting.
     template_keys = [
+        "common_llm_layer_jsonl",
+        "common_llm_simple_interaction_history_jsonl",
         "game_engine_jsonl_filename_template",
         "llm_completion_jsonl_filename_template",
         "memory_jsonl_filename_template",
@@ -76,14 +83,29 @@ def _purge_run_data(config: dict[str, Any]) -> None:
 
     for path in paths:
         try:
-            if path.exists():
-                path.unlink()
-        except IsADirectoryError:
-            for child in path.iterdir():
-                if child.is_file():
-                    child.unlink(missing_ok=True)  # type: ignore[arg-type]
+            if not path.exists():
+                continue
+            # Safety: do not delete directories. If a config key accidentally points
+            # at a folder, fail safe (skip) rather than wiping contents.
+            if path.is_dir():
+                print(
+                    f"--purge-data skipped directory path (expected file): {path}",
+                    file=sys.stderr,
+                )
+                continue
+            path.unlink()
         except FileNotFoundError:
             continue
+        except PermissionError as exc:
+            print(
+                f"--purge-data could not delete {path}: {exc}",
+                file=sys.stderr,
+            )
+        except Exception as exc:
+            print(
+                f"--purge-data error deleting {path}: {exc}",
+                file=sys.stderr,
+            )
 
 
 def main(argv: list[str] | None = None) -> None:

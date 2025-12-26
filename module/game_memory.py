@@ -188,6 +188,9 @@ class GameMemoryStore:
         "search",
     }
 
+    # Commands that are system/bootstrap events rather than player actions.
+    _NON_PLAYER_COMMANDS: set[str] = {"__start__"}
+
     def __init__(self, player_name: str, db_path: str | Path) -> None:
         """Initialize the memory store with a configured persistent DB path.
         
@@ -616,14 +619,23 @@ class GameMemoryStore:
         # Synchronize global player state snapshot
         self._sync_player_state(facts)
 
-        # Accumulate description lines (non-duplicative)
-        for paragraph in self._split_paragraphs(facts.description):
-            if paragraph and paragraph not in scene.description_lines:
-                scene.description_lines.append(paragraph)
-                my_logging.log_memory_event("description_added", {
-                    "room": room_name,
-                    "line": paragraph[:80],
-                })
+        # Accumulate room description lines (non-duplicative).
+        # IMPORTANT: Do NOT mix command feedback (e.g., "It is already open.") into
+        # scene description memory. Only persist description text when it represents
+        # a room intro/room look.
+        room_changed = bool(previous_room and previous_room != room_name)
+        verb, target = self._extract_action_target(command or "") if command else ("", None)
+        is_room_look = verb in {"look", "l"} and not (target and target.strip())
+        should_store_room_description = bool(room_changed or is_new_room or is_room_look)
+
+        if should_store_room_description:
+            for paragraph in self._split_paragraphs(facts.description):
+                if paragraph and paragraph not in scene.description_lines:
+                    scene.description_lines.append(paragraph)
+                    my_logging.log_memory_event("description_added", {
+                        "room": room_name,
+                        "line": paragraph[:80],
+                    })
         
         # Accumulate visible items (non-duplicative)
         if facts.visible_items:
@@ -643,7 +655,9 @@ class GameMemoryStore:
         
         # Accumulate action (command and result)
         action_record: ActionRecord | None = None
-        if command:
+        # Do not treat bootstrap/system commands as player actions.
+        is_non_player_command = bool(command and command.strip() in self._NON_PLAYER_COMMANDS)
+        if command and not is_non_player_command:
             result_summary = self._summarize_action_result(
                 room_name=room_name,
                 previous_room=previous_room,
@@ -728,11 +742,13 @@ class GameMemoryStore:
             "visit_count": current_scene.visit_count,
             "narrations": list(current_scene.narrations),
             "action_records": [record.to_dict() for record in current_scene.action_records],
+            "scene_intro_collection": [asdict(intro) for intro in current_scene.scene_intro_collection],
         }
 
         recent_scene_summaries = self._build_recent_scene_summaries(current_scene.room_name)
 
         return {
+            "player_name": self.player_name,
             "turn_count": self._turn_count,
             "current_room": self._current_room,
             "current_scene": current_scene_payload,

@@ -107,21 +107,30 @@ def _extract_description(
     if len(split_parts) < 2:
         return None
     remainder = split_parts[1]
-    desc_lines: list[str] = []
-    started = False
-    for line in remainder.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            if started:
-                break
-            continue
-        desc_lines.append(line)
-        started = True
-    if desc_lines and room_name and desc_lines[0].strip() == room_name:
-        desc_lines = desc_lines[1:]
-    if desc_lines:
-        return "\n".join(desc_lines)
-    return None
+
+    # Heuristic: capture the full body after the header line.
+    # Many IF engines (including Zork) include blank lines inside legitimate
+    # action feedback (e.g., reading a leaflet/book), so stopping at the first
+    # blank line truncates important content.
+    lines = remainder.splitlines()
+
+    # Trim leading blank lines.
+    while lines and not lines[0].strip():
+        lines.pop(0)
+
+    # Some transcripts repeat the room name as the first line of the body.
+    if lines and room_name and lines[0].strip() == room_name:
+        lines.pop(0)
+        while lines and not lines[0].strip():
+            lines.pop(0)
+
+    # Trim trailing blank lines.
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    if not lines:
+        return None
+    return "\n".join(lines)
 
 
 def _extract_score_and_moves(transcript: str) -> tuple[int | None, int | None]:

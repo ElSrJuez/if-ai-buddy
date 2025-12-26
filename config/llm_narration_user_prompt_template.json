@@ -31,6 +31,8 @@
   },
 
   "value_sources": {
+    "player_name": { "path": "player_name", "kind": "scalar" },
+
     "turn": { "path": "turn_count", "kind": "scalar" },
 
     "room_name": { "path": "current_scene.room_name", "kind": "scalar" },
@@ -72,16 +74,29 @@
       "path": "current_scene.action_records",
       "kind": "list_of_objects",
       "take_last": "limits.recent_actions_max",
-      "item_template": "{command} → {result}",
-      "join": "; "
+      "item_template": "- {command} → {result}",
+      "join": "\n",
+      "multiline_indent": "  "
+    },
+
+    "recent_actions_before": {
+      "__comment": "Recent actions excluding the most recent (used to avoid duplicating the 'Just now' line).",
+      "path": "current_scene.action_records",
+      "kind": "list_of_objects",
+      "take_last": "limits.recent_actions_max",
+      "drop_last": 1,
+      "item_template": "- {command} → {result}",
+      "join": "\n",
+      "multiline_indent": "  "
     },
 
     "most_recent_action": {
       "path": "current_scene.action_records",
       "kind": "list_of_objects",
       "take_last": 1,
-      "item_template": "{command} → {result}",
-      "join": ""
+      "item_template": "- {command} → {result}",
+      "join": "\n",
+      "multiline_indent": "  "
     },
 
     "narration_history": {
@@ -91,11 +106,28 @@
       "join": "\n"
     },
 
+    "narration_before": {
+      "__comment": "Narration history excluding the most recent line (to keep continuity without burying the latest voice).",
+      "path": "current_scene.narrations",
+      "kind": "list",
+      "take_last": "limits.narration_history_max",
+      "drop_last": 1,
+      "join": "\n"
+    },
+
+    "narration_last": {
+      "path": "current_scene.narrations",
+      "kind": "list",
+      "take_last": 1,
+      "join": "\n"
+    },
+
     "inventory": {
       "path": "player_state.inventory",
       "kind": "list",
       "take_first": "limits.inventory_max",
-      "join": ", "
+      "item_template": "- {item}",
+      "join": "\n"
     },
 
     "recent_locations": {
@@ -115,14 +147,14 @@
       "required": true,
       "header": null,
       "lines": [
-        "Turn {turn}. You are in {room_name}.",
+        "Turn {turn}. {player_name} is in {room_name}.",
         "{_entered_from_sentence}",
         ""
       ],
       "derived_lines": {
         "_entered_from_sentence": {
           "when_all_present": ["previous_room", "entry_command"],
-          "template": "You got here from {previous_room} by doing: {entry_command}."
+          "template": "{player_name} got here from {previous_room} by doing: {entry_command}."
         }
       }
     },
@@ -131,10 +163,35 @@
       "required": true,
       "header": null,
       "lines": [
-        "{scene_description}",
+        "Current Game Scene:\n{scene_description}",
         ""
       ]
     },
+
+    {
+      "id": "most_recent_action",
+      "required": false,
+      "header": null,
+      "lines": [
+        "{_most_recent_action_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_most_recent_action_sentence": {
+          "cases": [
+            {
+              "when_present": "most_recent_action",
+              "template": "Just now, {player_name} did:\n{most_recent_action}"
+            },
+            {
+              "when_empty": "most_recent_action",
+              "template": ""
+            }
+          ]
+        }
+      }
+    },
+
     {
       "id": "what_is_here",
       "required": false,
@@ -149,11 +206,11 @@
           "cases": [
             {
               "when_present": "visible_now",
-              "template": "Right now you can see: {visible_now}."
+              "template": "Right now, {player_name} can see: {visible_now}."
             },
             {
               "when_empty": "visible_now",
-              "template": "Right now, nothing obvious stands out as an interactable object."
+              "template": "Right now, nothing obvious stands out as an interactable object for {player_name}."
             }
           ]
         },
@@ -161,80 +218,11 @@
           "cases": [
             {
               "when_present": "npcs",
-              "template": "You notice: {npcs}."
+              "template": "Nearby, {player_name} notices: {npcs}."
             },
             {
               "when_empty": "npcs",
               "template": ""
-            }
-          ]
-        }
-      }
-    },
-    {
-      "id": "most_recent_action",
-      "required": false,
-      "header": null,
-      "lines": [
-        "{_most_recent_action_sentence}",
-        ""
-      ],
-      "derived_lines": {
-        "_most_recent_action_sentence": {
-          "cases": [
-            {
-              "when_present": "most_recent_action",
-              "template": "Just now: {most_recent_action}."
-            },
-            {
-              "when_empty": "most_recent_action",
-              "template": ""
-            }
-          ]
-        }
-      }
-    },
-    {
-      "id": "recent_actions",
-      "required": false,
-      "header": null,
-      "lines": [
-        "{_recent_actions_sentence}",
-        ""
-      ],
-      "derived_lines": {
-        "_recent_actions_sentence": {
-          "cases": [
-            {
-              "when_present": "recent_actions",
-              "template": "Recent commands and results: {recent_actions}."
-            },
-            {
-              "when_empty": "recent_actions",
-              "template": "You haven't done anything notable in this location yet."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "id": "narrator_memory",
-      "required": false,
-      "header": null,
-      "lines": [
-        "{_narration_history_sentence}",
-        ""
-      ],
-      "derived_lines": {
-        "_narration_history_sentence": {
-          "cases": [
-            {
-              "when_present": "narration_history",
-              "template": "Previously, the narrator said:\n{narration_history}"
-            },
-            {
-              "when_empty": "narration_history",
-              "template": "The narrator hasn't described this location yet."
             }
           ]
         }
@@ -253,11 +241,38 @@
           "cases": [
             {
               "when_present": "inventory",
-              "template": "You're carrying: {inventory}."
+              "template": "{player_name} is carrying:\n{inventory}"
             },
             {
               "when_empty": "inventory",
-              "template": "You're carrying nothing."
+              "template": "{player_name} is carrying nothing."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "recent_actions",
+      "required": false,
+      "header": null,
+      "lines": [
+        "{_recent_actions_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_recent_actions_sentence": {
+          "cases": [
+            {
+              "when_empty": "most_recent_action",
+              "template": "{player_name} hasn't done anything notable in this location yet."
+            },
+            {
+              "when_present": "recent_actions_before",
+              "template": "Earlier in this place, {player_name} did:\n{recent_actions_before}"
+            },
+            {
+              "when_empty": "recent_actions_before",
+              "template": ""
             }
           ]
         }
@@ -276,11 +291,47 @@
           "cases": [
             {
               "when_present": "recent_locations",
-              "template": "Recently visited: {recent_locations}."
+              "template": "Recently visited (by {player_name}): {recent_locations}."
             },
             {
               "when_empty": "recent_locations",
-              "template": "You haven't visited any other locations yet."
+              "template": "{player_name} hasn't visited any other locations yet."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "narrator_memory",
+      "required": false,
+      "header": null,
+      "lines": [
+        "{_narration_before_sentence}",
+        "{_narration_last_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_narration_before_sentence": {
+          "cases": [
+            {
+              "when_present": "narration_before",
+              "template": "Previously, you (Narrator) said:\n{narration_before}"
+            },
+            {
+              "when_empty": "narration_before",
+              "template": ""
+            }
+          ]
+        },
+        "_narration_last_sentence": {
+          "cases": [
+            {
+              "when_present": "narration_last",
+              "template": "Most recently, you (Narrator) said:\n{narration_last}"
+            },
+            {
+              "when_empty": "narration_last",
+              "template": "You (Narrator) haven't narrated this location yet."
             }
           ]
         }
@@ -291,7 +342,7 @@
       "required": true,
       "header": null,
       "lines": [
-        "Continue the narration for the player."
+        "Continue the narration for {player_name}."
       ]
     }
   ]
