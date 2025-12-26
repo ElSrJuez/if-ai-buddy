@@ -4,8 +4,6 @@
 
 
 # Resources
-/res/*
-!res/.gitkeep
 /res/db/*
 !res/db/.gitkeep
 
