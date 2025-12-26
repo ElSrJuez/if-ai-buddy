@@ -10,6 +10,7 @@ from openai import OpenAI
 
 from module import my_logging
 from module import common_llm_layer
+from module import config_registry
 from module.ai_engine_parsing import normalize_ai_payload
 from module.llm_factory_FoundryLocal import create_llm_client
 from module.narration_job_builder import NarrationJobSpec
@@ -37,27 +38,30 @@ class CompletionsHelper:
         start_time = time.time()
         messages = job.messages
         metadata = job.metadata or {}
+        provider = config_registry.llm_provider(self.config)
 
         try:
-            if self.config.get("llm_provider") == "openai":
+            if provider == "openai":
                 narration_text, raw_response = await self._stream_openai(
                     messages,
                     on_chunk,
                     loop,
                 )
-            else:
+            elif provider == "foundry":
                 narration_text, raw_response = await self._stream_foundry(
                     messages,
                     on_chunk,
                     loop,
                 )
+            else:
+                raise NotImplementedError(f"llm_provider '{provider}' is not wired yet")
 
             payload = normalize_ai_payload(
                 {"narration": narration_text}, self.response_schema
             )
             tokens = self._extract_token_count(raw_response)
             latency = time.time() - start_time
-            model = self.config.get("llm_model_alias", "unknown")
+            model = str(config_registry.require_llm_value(self.config, "alias"))
 
             result = {
                 "payload": payload,
@@ -83,7 +87,7 @@ class CompletionsHelper:
             # Compact, query-friendly interaction history (no streaming internals).
             common_llm_layer.log_simple_interaction_history(
                 request={
-                    "provider": self.config.get("llm_provider", "unknown"),
+                    "provider": provider,
                     "model": model,
                 },
                 messages=messages,
@@ -98,7 +102,7 @@ class CompletionsHelper:
             if on_chunk:
                 loop.call_soon_threadsafe(on_chunk, "(Narration unavailable)")
             latency = time.time() - start_time
-            model = self.config.get("llm_model_alias", "unknown")
+            model = str(config_registry.require_llm_value(self.config, "alias"))
             fallback_payload = {
                 "narration": "The game continues...",
                 "game_intent": "Unknown",
@@ -120,7 +124,7 @@ class CompletionsHelper:
 
             common_llm_layer.log_simple_interaction_history(
                 request={
-                    "provider": self.config.get("llm_provider", "unknown"),
+                    "provider": provider,
                     "model": model,
                 },
                 messages=messages,
@@ -143,10 +147,13 @@ class CompletionsHelper:
         """Synchronous fallback for legacy callers (non-streaming)."""
         messages = job.messages
 
-        if self.config.get("llm_provider") == "openai":
+        provider = config_registry.llm_provider(self.config)
+        if provider == "openai":
             raw_response = self._call_openai(messages)
-        else:
+        elif provider == "foundry":
             raw_response = self._call_foundry(messages)
+        else:
+            raise NotImplementedError(f"llm_provider '{provider}' is not wired yet")
 
         payload = self._parse_response(raw_response)
         payload = normalize_ai_payload(payload, self.response_schema)
@@ -159,7 +166,7 @@ class CompletionsHelper:
             "diagnostics": {
                 "latency_seconds": latency,
                 "tokens": tokens,
-                "model": self.config["llm_model_alias"],
+                "model": str(config_registry.require_llm_value(self.config, "alias")),
             },
         }
         return result
@@ -228,9 +235,9 @@ class CompletionsHelper:
         on_chunk: Callable[[str], None] | None,
         loop: asyncio.AbstractEventLoop,
     ) -> tuple[str, Any]:
-        model = self.config["llm_model_alias"]
-        temperature = self.config.get("llm_temperature", 0.7)
-        max_tokens = self.config.get("max_tokens", 1000)
+        model = str(config_registry.require_llm_value(self.config, "alias"))
+        temperature = float(config_registry.require_llm_value(self.config, "temperature"))
+        max_tokens = int(config_registry.require_llm_value(self.config, "max_tokens"))
 
         def _job() -> tuple[str, Any]:
             stream = self.llm_client.stream_chat(
@@ -291,10 +298,10 @@ class CompletionsHelper:
 
     def _call_foundry(self, messages: list[dict[str, str]]) -> Any:
         return self.llm_client.chat(
-            model=self.config["llm_model_alias"],
+            model=str(config_registry.require_llm_value(self.config, "alias")),
             messages=messages,
-            temperature=self.config.get("llm_temperature", 0.7),
-            max_tokens=self.config.get("max_tokens", 1000),
+            temperature=float(config_registry.require_llm_value(self.config, "temperature")),
+            max_tokens=int(config_registry.require_llm_value(self.config, "max_tokens")),
         )
 
     def _parse_response(self, raw_response: Any) -> dict[str, Any]:

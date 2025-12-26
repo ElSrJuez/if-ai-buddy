@@ -31,7 +31,6 @@ SECTION_KEYS: dict[str, set[str]] = {
         "llm_narration_user_prompt_template",
         "llm_memory_system_prompt",
         "llm_memory_user_prompt_template",
-        "llm_model_alias",
     },
     "logging": {
         "system_log",
@@ -96,6 +95,49 @@ def validate_config(config: Mapping[str, object], *, sections: Iterable[str] | N
     if missing:
         raise ConfigValidationError(
             "Missing required config keys: " + ", ".join(sorted(missing))
+        )
+    if sections is None or "llm" in sections:
+        _validate_llm_provider_keys(config)
+
+
+def llm_provider(config: Mapping[str, object]) -> str:
+    if "llm_provider" not in config:
+        raise ConfigValidationError("Missing required config key 'llm_provider'")
+    provider = str(config["llm_provider"]).strip()
+    if provider not in ("foundry", "otheropenai"):
+        raise ConfigValidationError(f"Unsupported llm_provider '{provider}'")
+    return provider
+
+
+def llm_provider_key(provider: str, field: str) -> str:
+    return f"llm_model_{field}_{provider}"
+
+
+def require_llm_value(config: Mapping[str, object], field: str) -> object:
+    provider = llm_provider(config)
+    key = llm_provider_key(provider, field)
+    if key not in config:
+        raise ConfigValidationError(
+            f"Missing required config key '{key}' for llm_provider '{provider}'"
+        )
+    return config[key]
+
+
+def _validate_llm_provider_keys(config: Mapping[str, object]) -> None:
+    provider = llm_provider(config)
+
+    # Only require what the current code path actually consumes.
+    required_fields = ("alias", "temperature", "max_tokens")
+
+    missing: list[str] = []
+    for field in required_fields:
+        key = llm_provider_key(provider, field)
+        if key not in config:
+            missing.append(key)
+    if missing:
+        raise ConfigValidationError(
+            "Missing required config keys for llm_provider "
+            f"'{provider}': {', '.join(sorted(missing))}"
         )
 
 

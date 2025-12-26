@@ -9,6 +9,8 @@ from typing import Any
 from foundry_local import FoundryLocalManager
 from openai import OpenAI
 
+from module import config_registry
+
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +20,8 @@ class FoundryChatAdapter:
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
-        alias = config.get("llm_model_alias")
-        if not alias:
-            raise ValueError("Foundry provider requires 'llm_model_alias' in config")
+        # Fail fast: Foundry must be fully configured via provider-scoped keys.
+        alias = str(config_registry.require_llm_value(config, "alias"))
 
         self.manager = FoundryLocalManager()
         self._loaded_aliases: dict[str, str] = {}
@@ -115,7 +116,7 @@ def create_llm_client(config: dict[str, Any]) -> Any:
     Raises:
         ValueError: If provider is unknown or required config is missing.
     """
-    provider = config.get("llm_provider")
+    provider = str(config.get("llm_provider", "")).strip()
 
     if provider == "openai":
         api_key = config.get("openai_api_key")
@@ -133,6 +134,9 @@ def create_llm_client(config: dict[str, Any]) -> Any:
     
     elif provider == "foundry":
         return FoundryChatAdapter(config)
+
+    elif provider == "otheropenai":
+        raise NotImplementedError("llm_provider 'otheropenai' is not wired yet")
     
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")
