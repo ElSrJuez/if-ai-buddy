@@ -42,6 +42,7 @@ class OtherOpenAIChatAdapter:
 		schema: dict[str, Any] | None = None,
 		temperature: float | None = None,
 		max_tokens: int | None = None,
+		repetition_penalty: float | None = None,
 	) -> Any:
 		kwargs: dict[str, Any] = {
 			"model": model,
@@ -51,6 +52,9 @@ class OtherOpenAIChatAdapter:
 			kwargs["temperature"] = temperature
 		if max_tokens is not None:
 			kwargs["max_tokens"] = max_tokens
+
+		if repetition_penalty is not None:
+			kwargs["extra_body"] = {"repetition_penalty": repetition_penalty}
 
 		# Optional structured output support (only if the endpoint supports it).
 		if schema:
@@ -73,6 +77,7 @@ class OtherOpenAIChatAdapter:
 		messages: list[dict[str, str]],
 		temperature: float | None = None,
 		max_tokens: int | None = None,
+		repetition_penalty: float | None = None,
 	):
 		kwargs: dict[str, Any] = {
 			"model": model,
@@ -83,6 +88,8 @@ class OtherOpenAIChatAdapter:
 			kwargs["temperature"] = temperature
 		if max_tokens is not None:
 			kwargs["max_tokens"] = max_tokens
+		if repetition_penalty is not None:
+			kwargs["extra_body"] = {"repetition_penalty": repetition_penalty}
 		return self._client.chat.completions.create(**kwargs)
 
 

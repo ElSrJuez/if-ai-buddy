@@ -40,6 +40,7 @@ class FoundryChatAdapter:
         schema: dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        repetition_penalty: float | None = None,
     ) -> Any:
         kwargs: dict[str, Any] = {
             "model": self._ensure_alias_loaded(model),
@@ -49,6 +50,10 @@ class FoundryChatAdapter:
             kwargs["temperature"] = temperature
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
+
+        if repetition_penalty is not None:
+            # Use extra_body to pass non-standard fields supported by local engines.
+            kwargs["extra_body"] = {"repetition_penalty": repetition_penalty}
 
         response_format = self._build_response_format(schema)
         if response_format:
@@ -63,6 +68,7 @@ class FoundryChatAdapter:
         messages: list[dict[str, str]],
         temperature: float | None = None,
         max_tokens: int | None = None,
+        repetition_penalty: float | None = None,
     ):
         kwargs: dict[str, Any] = {
             "model": self._ensure_alias_loaded(model),
@@ -73,6 +79,9 @@ class FoundryChatAdapter:
             kwargs["temperature"] = temperature
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
+
+        if repetition_penalty is not None:
+            kwargs["extra_body"] = {"repetition_penalty": repetition_penalty}
 
         return self._client.chat.completions.create(**kwargs)
 

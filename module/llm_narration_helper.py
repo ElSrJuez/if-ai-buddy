@@ -163,6 +163,7 @@ class CompletionsHelper:
         model = self.llm_settings.alias
         temperature = self.llm_settings.temperature
         max_tokens = self.llm_settings.max_tokens
+        repetition_penalty = self.llm_settings.repetition_penalty
 
         def _job() -> tuple[str, Any]:
             stream = self.llm_client.stream_chat(
@@ -170,6 +171,7 @@ class CompletionsHelper:
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                repetition_penalty=repetition_penalty,
             )
 
             def _emit(text: str) -> None:
@@ -216,6 +218,7 @@ class CompletionsHelper:
             messages=messages,
             temperature=self.llm_settings.temperature,
             max_tokens=self.llm_settings.max_tokens,
+            repetition_penalty=self.llm_settings.repetition_penalty,
         )
 
     def _parse_response(self, raw_response: Any) -> dict[str, Any]:

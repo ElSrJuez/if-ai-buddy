@@ -31,6 +31,7 @@ class LlmSettings:
     alias: str
     temperature: float
     max_tokens: int
+    repetition_penalty: float
     endpoint: str | None = None
     openai_api_key: str | None = None
 
@@ -143,9 +144,16 @@ def _validate_llm_provider_keys(config: Mapping[str, object]) -> None:
     provider = llm_provider(config)
 
     if provider == "foundry":
-        required_fields = ("alias", "temperature", "max_tokens")
+        required_fields = ("alias", "temperature", "max_tokens", "repetition_penalty")
     elif provider == "otheropenai":
-        required_fields = ("alias", "temperature", "max_tokens", "endpoint", "openai_api_key")
+        required_fields = (
+            "alias",
+            "temperature",
+            "max_tokens",
+            "repetition_penalty",
+            "endpoint",
+            "openai_api_key",
+        )
     else:
         raise ConfigValidationError(f"Unsupported llm_provider '{provider}'")
 
@@ -183,6 +191,11 @@ def resolve_llm_settings(config: Mapping[str, object]) -> LlmSettings:
     except Exception as exc:  # noqa: BLE001
         raise ConfigValidationError(f"Invalid LLM max_tokens: {exc}")
 
+    try:
+        repetition_penalty = float(require_llm_value(config, "repetition_penalty"))
+    except Exception as exc:  # noqa: BLE001
+        raise ConfigValidationError(f"Invalid LLM repetition_penalty: {exc}")
+
     endpoint: str | None = None
     openai_api_key: str | None = None
 
@@ -199,6 +212,7 @@ def resolve_llm_settings(config: Mapping[str, object]) -> LlmSettings:
         alias=alias,
         temperature=temperature,
         max_tokens=max_tokens,
+        repetition_penalty=repetition_penalty,
         endpoint=endpoint,
         openai_api_key=openai_api_key,
     )

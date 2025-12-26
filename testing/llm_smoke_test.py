@@ -80,6 +80,7 @@ def main() -> None:
         "messages": messages,
         "temperature": settings.temperature,
         "max_tokens": settings.max_tokens,
+        "repetition_penalty": settings.repetition_penalty,
     }
 
     if args.use_schema:
@@ -110,6 +111,7 @@ def main() -> None:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            repetition_penalty=settings.repetition_penalty,
         )
     except BadRequestError as exc:
         print("LLM call failed with 400 Bad Request", file=sys.stderr)
@@ -166,12 +168,14 @@ def _stream_chat(
     messages: list[dict[str, str]],
     temperature: float,
     max_tokens: int,
+    repetition_penalty: float,
 ) -> Any:
     stream = adapter.stream_chat(
         model=model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
+        repetition_penalty=repetition_penalty,
     )
     request = {
         "provider": provider,
@@ -179,6 +183,7 @@ def _stream_chat(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "repetition_penalty": repetition_penalty,
         "stream": True,
     }
 

@@ -15,17 +15,17 @@
   "narration_context_max_transcript_chars": 800,
   "stream_only_narration": true,
   
-  "llm_provider": "otheropenai",
+  "llm_provider": "foundry",
 
   "llm_model_max_tokens_foundry": 1000,
-  "llm_model_temperature_foundry": 0.4,
+  "llm_model_temperature_foundry": 0.7,
   "llm_model_repetition_penalty_foundry": 1.2,
   "llm_model_alias_foundry": "Phi-4-mini-instruct-cuda-gpu",
   "llm_model_openai_api_key_foundry": "OPENAI_API_KEY",
   "llm_model_endpoint_foundry": "NA",
   
   "llm_model_max_tokens_otheropenai": 1000,
-  "llm_model_temperature_otheropenai": 0.4,
+  "llm_model_temperature_otheropenai": 0.7,
   "llm_model_repetition_penalty_otheropenai": 1.2,
   "llm_model_alias_otheropenai": "Qwen3-1.7B-GGUF",
   "llm_model_openai_api_key_otheropenai": "lemonade",
