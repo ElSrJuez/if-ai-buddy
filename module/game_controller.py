@@ -202,12 +202,8 @@ class GameController:
             
             # Log the initial game intro as a transcript event (transaction zero)
             my_logging.log_player_output(session.intro_text)
-            
-            # Add intro text to transcript
-            if session.intro_text:
-                self._app.add_transcript_output(session.intro_text)
-            
-            # Extract initial state
+
+            # Extract initial state (canonical heuristics output)
             facts = parse_engine_facts(session.intro_text)
             if facts.room_name:
                 self._room = facts.room_name
@@ -215,6 +211,17 @@ class GameController:
                 self._moves = facts.moves
             if facts.score is not None:
                 self._score = facts.score
+
+            # Render structured view (avoid dumping raw transcript/status header lines)
+            self._render_engine_view_to_transcript(
+                command=None,
+                room_name=facts.room_name,
+                description=facts.description,
+                previous_room=None,
+                fallback_transcript=session.intro_text,
+                is_exception=facts.gameException,
+                exception_message=facts.exceptionMessage,
+            )
 
             # Turn 0: record intro facts before any narration/prompting.
             self._memory.update_from_engine_facts(
@@ -276,11 +283,21 @@ class GameController:
             
             # Log transcript
             my_logging.log_player_output(transcript)
-            
-            # Add to transcript
-            self._app.add_transcript_output(transcript)
-            
+
             previous_room = self._room
+
+            # Render structured view (use already-parsed EngineTurn fields)
+            self._render_engine_view_to_transcript(
+                command=command,
+                room_name=outcome.room_name,
+                description=outcome.description,
+                previous_room=previous_room,
+                fallback_transcript=transcript,
+                is_exception=outcome.gameException,
+                exception_message=outcome.exceptionMessage,
+            )
+
+            # Memory uses canonical heuristics output
             facts = parse_engine_facts(transcript)
             if outcome.moves is not None:
                 self._moves = outcome.moves
@@ -317,6 +334,59 @@ class GameController:
             self._app.add_transcript_output(f"Error: {exc}")
             self._set_engine_status(EngineStatus.ERROR)
             self._set_ai_status(AIStatus.ERROR)
+
+
+    def _render_engine_view_to_transcript(
+        self,
+        *,
+        command: str | None,
+        room_name: str | None,
+        description: str | None,
+        previous_room: str | None,
+        fallback_transcript: str,
+        is_exception: bool,
+        exception_message: str | None,
+    ) -> None:
+        """Render a clean, structured engine view in the transcript pane.
+
+        This avoids duplicating UI-held fields (room/score/moves) that appear in raw
+        engine transcripts while still showing the meaningful narrative text.
+        """
+
+        if command:
+            self._app.add_transcript_output(self._escape_markup(f"> {command}"))
+
+        if is_exception:
+            msg = exception_message or "Engine error"
+            self._app.add_transcript_output(f"[red]{self._escape_markup(msg)}[/red]")
+            raw = (fallback_transcript or "").strip()
+            if raw and raw != msg:
+                self._app.add_transcript_output(self._escape_markup(raw))
+            self._app.add_transcript_output("")
+            return
+
+        show_room = bool(room_name) and (previous_room is None or room_name != previous_room)
+        if show_room and room_name:
+            self._app.add_transcript_output(f"[bold]{self._escape_markup(room_name)}[/bold]")
+
+        body = (description or "").strip()
+        if body:
+            self._app.add_transcript_output(self._escape_markup(body))
+        else:
+            # If heuristics produced no description, show the raw transcript rather than
+            # silently dropping engine output.
+            raw = (fallback_transcript or "").strip()
+            if raw:
+                self._app.add_transcript_output(self._escape_markup(raw))
+
+        self._app.add_transcript_output("")
+
+    @staticmethod
+    def _escape_markup(text: str) -> str:
+        """Escape content so it can't be interpreted as Textual markup."""
+        if not text:
+            return ""
+        return text.replace("\\", "\\\\").replace("[", "\\[")
 
 
     def _handle_player_rename(self) -> None:

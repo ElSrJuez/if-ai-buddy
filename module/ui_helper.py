@@ -124,8 +124,32 @@ class NarrationPanel(Static):
         super().__init__()
         self._streaming: bool = False
         self._stream_buffer: str = ""
+        self._stream_bg: str | None = None
+        self._alternate_bg: bool = False
         self._lines: list[str] = []
         self._narration_log = RichLog(markup=True, highlight=False, wrap=True)
+
+    def _next_bg(self) -> str:
+        """Return the next background color for a new narration block."""
+        bg = DEFAULT_NARRATION_BG_A if not self._alternate_bg else DEFAULT_NARRATION_BG_B
+        self._alternate_bg = not self._alternate_bg
+        return bg
+
+    @staticmethod
+    def _escape_markup(text: str) -> str:
+        """Escape text so it can't be interpreted as Textual markup.
+
+        Textual markup uses square brackets; escape '[' as documented.
+        """
+        if not text:
+            return ""
+        # Escape backslashes first so our "\\[" stays intact.
+        return text.replace("\\", "\\\\").replace("[", "\\[")
+
+    def _wrap_block(self, *, bg: str, text: str) -> str:
+        escaped = self._escape_markup(text)
+        # Textual docs: background via [on <color>]...[/]
+        return f"[on {bg}]{escaped}[/]"
 
     def compose(self) -> ComposeResult:
         yield self._narration_log
@@ -139,7 +163,8 @@ class NarrationPanel(Static):
         """Signal that streaming is starting."""
         self._streaming = True
         self._stream_buffer = ""
-        self._lines.append("")
+        self._stream_bg = self._next_bg()
+        self._lines.append(self._wrap_block(bg=self._stream_bg, text=""))
         self._refresh()
 
     def append_stream(self, text: str) -> None:
@@ -147,32 +172,38 @@ class NarrationPanel(Static):
         if not text:
             return
         self._stream_buffer += text
+        bg = self._stream_bg or DEFAULT_NARRATION_BG_A
         if self._lines:
-            self._lines[-1] = self._stream_buffer
+            self._lines[-1] = self._wrap_block(bg=bg, text=self._stream_buffer)
         else:
-            self._lines.append(self._stream_buffer)
+            self._lines.append(self._wrap_block(bg=bg, text=self._stream_buffer))
         self._refresh()
 
     def end_stream(self, final_text: str | None = None) -> None:
         """Finalize streaming by recording any leftover narration."""
+        bg = self._stream_bg or DEFAULT_NARRATION_BG_A
         if final_text and not self._stream_buffer:
-            self._lines.append(final_text.strip())
+            self._lines.append(self._wrap_block(bg=bg, text=final_text.strip()))
         elif final_text and self._lines:
-            self._lines[-1] = final_text.strip()
+            self._lines[-1] = self._wrap_block(bg=bg, text=final_text.strip())
         if self._lines and not self._lines[-1].strip():
             self._lines.pop()
         self._streaming = False
         self._stream_buffer = ""
+        self._stream_bg = None
         self._refresh()
 
     def add_narration(self, text: str) -> None:
         """Add narration to the panel."""
-        self._lines.append(text)
+        bg = self._next_bg()
+        self._lines.append(self._wrap_block(bg=bg, text=text))
         self._refresh()
 
     def add_hint(self, text: str) -> None:
         """Add a hint or guidance line."""
-        self._lines.append(f"[dim]{text}[/dim]")
+        # Hints do not affect narration alternation.
+        escaped = self._escape_markup(text)
+        self._lines.append(f"[dim]{escaped}[/dim]")
         self._refresh()
 
     def reset(self) -> None:
@@ -180,6 +211,8 @@ class NarrationPanel(Static):
         self._lines.clear()
         self._stream_buffer = ""
         self._streaming = False
+        self._stream_bg = None
+        self._alternate_bg = False
         self._refresh()
         my_logging.system_debug("Narration panel cleared")
 
@@ -188,6 +221,8 @@ class NarrationPanel(Static):
 DEFAULT_PLAYER = my_config.get_config_value("player_name", "Adventurer")
 DEFAULT_GAME = my_config.get_config_value("default_game", "Unknown")
 DEFAULT_PLACEHOLDER = my_config.get_config_value("command_input_placeholder", "Enter command...")
+DEFAULT_NARRATION_BG_A = my_config.get_config_value("ui_narration_bg_color_a", "#202020")
+DEFAULT_NARRATION_BG_B = my_config.get_config_value("ui_narration_bg_color_b", "#1a1a1a")
 
 # Log resolved defaults
 my_logging.system_info(

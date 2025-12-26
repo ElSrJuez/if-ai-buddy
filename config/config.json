@@ -19,8 +19,8 @@
   "llm_provider": "foundry",
 
   "llm_model_max_tokens_foundry": 1000,
-  "llm_model_temperature_foundry": 0.7,
-  "llm_model_repetition_penalty_foundry": 1.2,
+  "llm_model_temperature_foundry": 0.65,
+  "llm_model_repetition_penalty_foundry": 1.5,
   "llm_model_alias_foundry": "Phi-4-mini-instruct-cuda-gpu",
   "llm_model_openai_api_key_foundry": "OPENAI_API_KEY",
   "llm_model_endpoint_foundry": "NA",
@@ -51,6 +51,8 @@
   "audiopath": "res/wavtmp/",
   "enable_image_companion": false,
   "image_style_preset": "monochrome ink illustration, retro text-adventure vibe, no UI chrome, no text overlays, avoid anachronisms",
-  "command_input_placeholder": "Enter command..."
+  "command_input_placeholder": "Enter command...",
+  "ui_narration_bg_color_a": "#202020",
+  "ui_narration_bg_color_b": "#1a1a1a"
 }
 
