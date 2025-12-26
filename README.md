@@ -1,4 +1,4 @@
-# IF AI Buddy (v0.1)
+# Interactive Fiction AI Buddy (v0.1)
 
 ![IF AI Buddy banner](res/interactive-fiction-ai-buddy-banner.png)
 
@@ -38,7 +38,17 @@ pip install -r requirements.txt
 
 ### 3) Configure
 
-Edit `config/config.json` (or start from `config/config copy.json`).
+Create your local config from the sample template:
+
+```bash
+# Windows PowerShell
+Copy-Item .\config\config.json.sample .\config\config.json
+```
+
+Then edit `config/config.json` for your environment (URLs, model, etc.).
+
+> Note: `config/config.json` is your local runtime config and may contain hostnames or API keys.
+> Do not commit it to a public repository.
 
 Key settings:
 
