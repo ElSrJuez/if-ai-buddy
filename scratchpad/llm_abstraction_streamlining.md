@@ -104,6 +104,23 @@ Outcome:
 
 ---
 
+## Addendum: Canonical prompt inputs (must land before `otheropenai`)
+
+Provider abstraction is only half the problem. The narration failures (repetition, invention) are primarily driven by **prompt construction**.
+
+### Required prompt/data work
+1. Add `turn_hints` to the memory snapshot (TurnHints: command, deltas, bounded evidence excerpt).
+2. Make the prompt builder consume only `NarrationArtifacts` from `GameMemoryStore.get_context_for_prompt()`.
+3. Remove repetition amplifiers:
+  - Do not label append-only `scene_items` as “Visible now”. Use `current_items`.
+  - Stop feeding full room descriptions back as action results.
+  - Replace ad-hoc transcript-delta parsing with memory-owned TurnHints.
+
+### Why this is a prerequisite
+Without this, adding `otheropenai` will only change latency/model quirks while the core problem (ambiguous, repetitive, weakly-grounded prompts) persists.
+
+---
+
 ### Phase 2 — Introduce a single internal LLM adapter interface
 **Goal:** `CompletionsHelper` should not branch by provider.
 

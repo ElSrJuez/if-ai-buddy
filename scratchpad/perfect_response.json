@@ -1,0 +1,98 @@
+[
+  {
+    "turn_number": 1,
+    "Scene_name": "West of House",
+    "missed_opportunity": "Lean harder on the one actionable prop (mailbox) and the implication that the front door being boarded means 'find another way'.",
+    "why": "The room state is extremely sparse at this point; emphasizing the single interactable and the blocked door sets expectations and helps the player choose a first probe.",
+    "perfect_llm_response": "Welcome to Zork: the boarded front door is an immediate dead-end, so your best first probe is the small mailbox sitting out in the open. If the house has secrets, you'll probably have to earn your way in.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences in second-person present tense. Be playful, but do NOT invent anything not in GAME STATE or LAST RESULT. Avoid reprinting long engine text.\n\nGAME STATE\n- Turn: 1\n- Room: West of House\n- Visible: small mailbox; white house with boarded front door\n- Inventory: (empty)\n\nLAST ACTION\n- Command: __start__\n- Result (excerpt): ZORK I... You are standing in an open field west of a white house, with a boarded front door. There is a small mailbox here.\n\nFOCUS THIS TURN\n- Ground the scene in the one obvious interactable (mailbox) and the blocked front door."
+  },
+  {
+    "turn_number": 2,
+    "Scene_name": "West of House",
+    "missed_opportunity": "Call out that the look confirms nothing new besides the mailbox, reinforcing that it's the immediate interaction path.",
+    "why": "The engine output explicitly mentions the mailbox; reflecting that back keeps narration grounded and avoids drifting into speculation.",
+    "perfect_llm_response": "You take a proper look: open field, white house, boarded front door, and that small mailbox waiting to be tampered with. If you're going to get traction here, it's by interacting with something real and obvious.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences in second-person present tense. Do not invent items, NPCs, weather, or hidden clues.\n\nGAME STATE\n- Turn: 2\n- Room: West of House\n- Visible: small mailbox; white house; boarded front door\n- Inventory: (empty)\n\nLAST ACTION\n- Command: look\n- Result: You are standing in an open field west of a white house, with a boarded front door. There is a small mailbox here.\n\nFOCUS THIS TURN\n- Confirm the scene without adding new facts; nudge toward interacting with the mailbox (obvious next probe)."
+  },
+  {
+    "turn_number": 3,
+    "Scene_name": "West of House",
+    "missed_opportunity": "Suggest the natural follow-through: take and read the leaflet immediately.",
+    "why": "The leaflet is the first new information object; prioritizing it reduces wandering and keeps the early loop tight.",
+    "perfect_llm_response": "The mailbox pops open and yields a leaflet—your first concrete clue instead of scenery. Snagging it (and reading it) is the clean next step before you go anywhere.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. No invention; only refer to what the engine just revealed.\n\nGAME STATE\n- Turn: 3\n- Room: West of House\n- Visible: small mailbox; leaflet (now revealed)\n- Inventory: (empty)\n\nLAST ACTION\n- Command: open mailbox\n- Result: Opening the small mailbox reveals a leaflet.\n\nFOCUS THIS TURN\n- Emphasize the new actionable object (leaflet) and the obvious follow-up (take/read)."
+  },
+  {
+    "turn_number": 4,
+    "Scene_name": "West of House",
+    "missed_opportunity": "Anchor on the updated state: leaflet is now in inventory; 'read leaflet' is the obvious immediate action.",
+    "why": "In the memory, the very next successful action is reading it; narration should reinforce that cause-and-effect rather than offering vague branching.",
+    "perfect_llm_response": "Leaflet secured—your first piece of portable evidence. Before you start wandering or harassing that boarded door again, reading it is the obvious sanity check.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. Stay strictly grounded; don't add discoveries.\n\nGAME STATE\n- Turn: 4\n- Room: West of House\n- Visible: small mailbox\n- Inventory: leaflet\n\nLAST ACTION\n- Command: take leaflet\n- Result: Taken.\n\nFOCUS THIS TURN\n- Acknowledge the leaflet is now carried; suggest reading it as the next sensible move."
+  },
+  {
+    "turn_number": 5,
+    "Scene_name": "West of House",
+    "missed_opportunity": "Use the leaflet's non-information ('welcome' only) as motivation to explore, and remind that you can return here easily.",
+    "why": "The text provides tone, not guidance; the narration should convert that into a clear next intention without inventing details.",
+    "perfect_llm_response": "The leaflet is just a blunt welcome—no directions, no hints, just permission to get yourself in trouble. With nothing else yielding here, exploration starts to look like the only honest plan.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. Do not invent what the leaflet says beyond the quoted text.\n\nGAME STATE\n- Turn: 5\n- Room: West of House\n- Visible: small mailbox; white house with boarded front door\n- Inventory: leaflet\n\nLAST ACTION\n- Command: read leaflet\n- Result: \"WELCOME TO ZORK!\n\nFOCUS THIS TURN\n- Treat the leaflet as flavor, not a clue; motivate exploration without adding new objectives or items."
+  },
+  {
+    "turn_number": 6,
+    "Scene_name": "Forest",
+    "missed_opportunity": "Reference what you carried with you (the leaflet) and mark the 'sunlight east' as a reliable breadcrumb back toward the house.",
+    "why": "Memory shows you still have the leaflet at this point, and the room description explicitly flags sunlight to the east; leveraging both increases continuity.",
+    "perfect_llm_response": "You step west into the forest with the leaflet still on you, trading the open field for trees in every direction. The sunlight to the east feels like your safest breadcrumb back.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. No invention; anchor to the move and the new location description.\n\nGAME STATE\n- Turn: 6\n- Room: Forest\n- Visible: trees in all directions; sunlight to the east\n- Inventory: leaflet\n\nLAST ACTION\n- Command: west\n- Result: Forest\n\nROOM DESCRIPTION\n- This is a forest, with trees in all directions. To the east, there appears to be sunlight.\n\nFOCUS THIS TURN\n- Contrast the open field vs forest; call out 'sunlight east' as a navigation anchor."
+  },
+  {
+    "turn_number": 7,
+    "Scene_name": "Forest",
+    "missed_opportunity": "Make the 'drop' explicitly tactical: you're creating a landmark in a featureless forest.",
+    "why": "The memory now tracks the leaflet as a current item in this room; narrating intent makes the action feel smart instead of random.",
+    "perfect_llm_response": "You drop the leaflet on purpose—a paper breadcrumb in a forest that otherwise looks like it could erase your sense of direction. Hands free, you can commit to exploration without losing your way entirely.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. Do not invent consequences; only what the engine confirms.\n\nGAME STATE\n- Turn: 7\n- Room: Forest\n- Visible: trees; sunlight to the east; leaflet (now on ground)\n- Inventory: (leaflet was dropped; now empty)\n\nLAST ACTION\n- Command: drop leaflet\n- Result: Dropped.\n\nFOCUS THIS TURN\n- Frame the drop as a deliberate breadcrumb/marker; keep it grounded (it's simply on the ground here)."
+  },
+  {
+    "turn_number": 8,
+    "Scene_name": "Forest Path",
+    "missed_opportunity": "Tie the moment to the last turn: you left the leaflet behind, and now you have a clearer navigation feature (a path) plus an obvious interactable (the low-branched tree).",
+    "why": "Memory has a strong transition: Forest -> Forest Path; calling out the earlier breadcrumb reinforces continuity and reduces 'reset-to-generic-forest' feel.",
+    "perfect_llm_response": "Leaving your dropped leaflet behind as a marker, you follow the hint of sunlight and find a real north–south path. A big tree with low branches looms right there, practically daring you to climb it and regret it.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. No invention; use the room description verbatim for facts.\n\nGAME STATE\n- Turn: 8\n- Room: Forest Path\n- Visible: north–south path; one particularly large tree with low branches\n- Inventory: (empty)\n- Note from prior turn: leaflet was left behind in the Forest (breadcrumb)\n\nLAST ACTION\n- Command: east\n- Result: Forest Path\n\nROOM DESCRIPTION\n- This is a path winding through a dimly lit forest. The path heads north-south here. One particularly large tree with some low branches stands at the edge of the path.\n\nFOCUS THIS TURN\n- Emphasize navigation clarity (path) and the obvious interaction (climb tree) without claiming hidden rewards."
+  },
+  {
+    "turn_number": 9,
+    "Scene_name": "Up a Tree",
+    "missed_opportunity": "Include the concrete physical constraints: you're about 10 feet up, and the next branch is out of reach.",
+    "why": "Those details matter for player expectation (what can/can't be climbed) and keep the narration tightly aligned to the description.",
+    "perfect_llm_response": "You haul yourself about ten feet up into the branches—high enough to feel committed, but not high enough to reach the next branch above. Beside you sits a small nest, and inside it a jeweled egg with a delicate clasp that screams 'valuable' and 'fragile' at the same time.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. Do not invent animals, extra items, or threats. Keep it tight: select 2–3 salient details only.\n\nGAME STATE\n- Turn: 9\n- Room: Up a Tree\n- Visible items: nest; jeweled egg\n- Inventory: (empty)\n\nLAST ACTION\n- Command: climb tree\n- Result: Up a Tree\n\nROOM DESCRIPTION (facts you may reference)\n- You are about 10 feet above the ground nestled among some large branches. The nearest branch above you is above your reach.\n- Beside you on the branch is a small bird's nest. In the bird's nest is a large egg encrusted with precious jewels... hinged and closed with a delicate looking clasp... extremely fragile.\n\nFOCUS THIS TURN\n- Convey height/awkwardness + the high-value, high-fragility egg as the new situation."
+  },
+  {
+    "turn_number": 10,
+    "Scene_name": "Up a Tree",
+    "missed_opportunity": "Acknowledge that at this moment the egg is still present and extremely fragile; taking the nest implies jostling risk.",
+    "why": "Memory says the egg is extremely fragile and still in the nest until the next turn; reinforcing care here matches the state and increases tension without invention.",
+    "perfect_llm_response": "You take the nest carefully, trying not to jostle what it held a moment ago—or what it might still be sheltering—because everything about that egg reads 'one slip and it's confetti.' Balanced in the branches, you can feel how little margin for error you have up here.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. No invention; keep continuity with the fragile egg.\n\nGAME STATE\n- Turn: 10\n- Room: Up a Tree\n- Visible items: egg (extremely fragile)\n- Inventory: nest\n\nLAST ACTION\n- Command: take nest\n- Result: Taken.\n\nFOCUS THIS TURN\n- Make the 'take nest' feel careful/tense because you're still up in branches and the egg is fragile; do not add new events."
+  },
+  {
+    "turn_number": 11,
+    "Scene_name": "Up a Tree",
+    "missed_opportunity": "Use the strongest concrete specifics: the egg is hinged, closed with a delicate clasp, and explicitly extremely fragile.",
+    "why": "Those details are salient and memorable; including them grounds the 'don't fumble' warning in facts rather than generic peril.",
+    "perfect_llm_response": "You take the jeweled egg—hinged, delicately clasped, and explicitly the kind of fragile you only learn about once—while a distant songbird chirps like it noticed. With nest and egg now in your inventory, this is not the moment for sudden movements.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. Do not invent reasons or new dangers; just reflect confirmed feedback.\n\nGAME STATE\n- Turn: 11\n- Room: Up a Tree\n- Inventory: nest; egg\n\nLAST ACTION\n- Command: take egg\n- Result: Taken. You hear in the distance the chirping of a song bird.\n\nFOCUS THIS TURN\n- Reinforce that the egg is hinged/clasped and extremely fragile, and that the only new sensory beat is the distant chirping."
+  },
+  {
+    "turn_number": 12,
+    "Scene_name": "Forest Path",
+    "missed_opportunity": "Connect your current carry (nest + egg) and the earlier breadcrumb (leaflet dropped back in the forest), and avoid implying new threats.",
+    "why": "The memory state now clearly includes nest and egg in inventory, and the leaflet's location is an actionable historical detail; using both increases history-awareness without invention.",
+    "perfect_llm_response": "You climb down to the forest path, relieved to be on firm ground with a nest and an extremely fragile jeweled egg still intact. The path runs north–south, and your dropped leaflet is back in the forest if you need a deliberate marker to return to.",
+    "perfect_user_prompt": "NARRATION TASK\nWrite 1–2 sentences, second-person present tense. No invention; keep it grounded in inventory + navigation.\n\nGAME STATE\n- Turn: 12\n- Room: Forest Path\n- Visible: north–south path; large tree with low branches\n- Inventory: nest; egg (extremely fragile)\n- Known breadcrumb: leaflet was dropped in the Forest earlier\n\nLAST ACTION\n- Command: climb down\n- Result: Forest Path\n\nFOCUS THIS TURN\n- Emphasize relief of being down safely with fragile loot; spotlight the simple next decision (north vs south) and the remembered breadcrumb."
+  }
+]

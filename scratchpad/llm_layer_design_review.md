@@ -211,3 +211,99 @@ Documented policy (no code):
 5. **Update GameController**: Wire engine-turn events to immediate UI display + heuristic memory recording, then enqueue both LLM jobs without blocking input.
 6. **Update all design docs** with the recommendations above.
 
+---
+
+## Implementation Plan (Prompt + Memory Artifacts, Pre-`otheropenai`)
+
+Objective: build a **canonical, memory-driven narration prompt** that is prose-formatted, config-driven, and **non-repetitive by construction**.
+
+Key principles (non-negotiable):
+- **Single source of truth:** prompt inputs come from `GameMemoryStore` only (no ad-hoc transcript parsing inside the prompt builder).
+- **Fail fast:** missing config or missing required memory fields must raise clear errors (no silent defaults that hide bugs).
+- **Minimize duplication:** avoid repeating the same facts across “scene”, “actions”, and “delta” sections.
+
+### Phase 0 — Freeze current behavior with observability
+1. Add a dedicated, plain-text prompt log (already exists) and confirm it logs the exact messages.
+2. Add a deterministic “prompt fingerprint” (hash of the user message) to help correlate repetitions.
+  - Must be computed from the exact user prompt string.
+  - Stored in logs only; does not affect runtime behavior.
+
+### Phase 1 — Introduce canonical TurnHints in the memory layer
+Goal: move all “what changed this turn?” evidence into memory so the prompt builder does not parse transcripts.
+
+Implementation steps:
+1. Extend `GameMemoryStore.update_from_engine_facts(...)` to persist a **TurnHints** record per turn (in memory and JSONL events), e.g.:
+  - `turn`
+  - `command` (verbatim)
+  - `room_name_before`, `room_name_after`
+  - `inventory_delta` (added/removed)
+  - `visible_items_delta` (added/removed) based on `current_items` transitions
+  - `engine_excerpt` (bounded, verbatim excerpt of the engine response relevant to the command)
+2. Expose TurnHints through `GameMemoryStore.get_context_for_prompt()` under a single key, e.g. `turn_hints`.
+
+Notes:
+- TurnHints must be derived from existing authoritative data paths (EngineFacts + Scene state transitions + recorded command).
+- TurnHints must be bounded (length-limited) so it cannot become a monolithic transcript dump.
+
+### Phase 2 — Define NarrationArtifacts (single prompt input contract)
+Goal: stop passing scattered dicts into the builder.
+
+Implementation steps:
+1. Make `get_context_for_prompt()` return a stable, explicit “NarrationArtifacts” envelope:
+  - `turn_count`
+  - `current_scene` (including `current_items`)
+  - `player_state`
+  - `recent_scene_summaries`
+  - `turn_hints`
+2. Remove/avoid unused keys in narration prompt generation (`persistent_facts`, `game_progress`) unless a config section explicitly uses them.
+
+### Phase 3 — Refactor NarrationJobBuilder into a single canonical composer
+Goal: one function owns the complete prompt contract.
+
+Implementation steps:
+1. Add a single canonical function (within `NarrationJobBuilder`) responsible for:
+  - selecting artifacts
+  - ordering sections
+  - emitting joining prose
+  - enforcing per-section size limits
+  - applying dedupe rules
+2. The output remains config-driven:
+  - config defines section ordering and optional inclusion
+  - builder enforces correctness, bounds, and dedupe
+
+### Phase 4 — Remove repetition amplifiers
+1. Fix “Visible:” semantics:
+  - “Visible now” must come from `current_items`, not append-only `scene_items`.
+  - If needed, include a separate “Known here” section from `scene_items`.
+2. Fix ActionRecord display:
+  - Do not feed full room descriptions back via `ActionRecord.result`.
+  - Prefer a bounded outcome line or a small excerpt.
+3. Replace ad-hoc transcript delta logic:
+  - Deprecate `NarrationJobBuilder._extract_transcript_delta(...)` in favor of memory-owned `turn_hints`.
+
+### Phase 5 — Tighten tone + constraints
+Goal: align output with narration objectives.
+
+Implementation steps:
+1. Update narration system prompt to:
+  - explicitly disallow adding new entities unless present in TurnHints evidence or current scene items
+  - enforce 1–2 sentences reliably (and treat violations as defects)
+2. Add a lightweight post-check (heuristic) on narration output:
+  - count sentences
+  - detect entity invention against the allowed set (items/npcs from memory)
+  - log violations for debugging (do not silently “fix” the output)
+
+### Phase 6 — Tests (prevent regressions)
+1. Add unit tests for:
+  - TurnHints generation (inventory delta, visible delta)
+  - prompt dedupe rules (no duplicated sentences across sections)
+  - “Visible now” uses `current_items`
+2. Add golden tests for prompt shape (snapshot strings) for representative turns.
+
+### Definition of Done
+- Prompt builder consumes only NarrationArtifacts from memory.
+- A TurnHints artifact exists and is persisted/logged.
+- “Visible now” is correct.
+- Repetition amplifiers removed (no room-description-as-action-result feedback loop).
+- Logs allow diagnosing why repetition/invention occurred.
+

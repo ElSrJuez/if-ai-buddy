@@ -1,0 +1,294 @@
+{
+  "spec_version": "1.0",
+  "__comment": [
+    "Declarative narration prompt template for small-ish chat models.",
+    "Goal: consistent, non-convoluted prompt assembly from memory context + latest turn transcript.",
+    "Renderer expectation: compute `values` from `value_sources`, then render `blocks` in order, skipping empty blocks.",
+    "This file provides ONLY grounded context. Behavioral rules belong in llm_narration_system_prompt.",
+    "All facts must come from memory_context (GameMemoryStore.get_context_for_prompt) and/or latest_transcript provided by the controller."
+  ],
+
+  "rendering": {
+    "__comment": [
+      "Null/empty handling strategy:",
+      "- Presence checks are evaluated on the *raw* extracted value (before join) for lists, and on trimmed text for scalars.",
+      "- A scalar is 'empty' if it is null/missing or trims to ''.",
+      "- A list is 'empty' if it is missing/null or has zero non-empty items after filtering.",
+      "- Derived lines should be used for sentences that would look broken when placeholders are empty.",
+      "- A derived line may be expressed as an ordered `cases` list; the first matching case wins.",
+      "- Absence is sometimes meaningful: explicitly narrate 'nothing', 'no prior narration', 'unexplored here yet', etc."
+    ]
+  },
+
+  "limits": {
+    "scene_description_max_lines": 4,
+    "recent_actions_max": 3,
+    "narration_history_max": 3,
+    "recent_locations_max": 2,
+    "inventory_max": 6,
+    "latest_transcript_max_chars": 600
+  },
+
+  "value_sources": {
+    "turn": { "path": "turn_count", "kind": "scalar" },
+
+    "room_name": { "path": "current_scene.room_name", "kind": "scalar" },
+    "visit_count": { "path": "current_scene.visit_count", "kind": "scalar" },
+
+    "previous_room": {
+      "path": "current_scene.scene_intro_collection.0.previous_room",
+      "kind": "scalar",
+      "__comment": "Requires exposing `scene_intro_collection` in `GameMemoryStore.get_context_for_prompt()` current_scene payload."
+    },
+    "entry_command": {
+      "path": "current_scene.scene_intro_collection.0.command",
+      "kind": "scalar",
+      "__comment": "Same as above: expose `scene_intro_collection`."
+    },
+
+    "scene_description": {
+      "path": "current_scene.description_lines",
+      "kind": "list",
+      "take_last": "limits.scene_description_max_lines",
+      "join": "\n"
+    },
+
+    "visible_now": {
+      "path": "current_scene.current_items",
+      "kind": "list",
+      "join": ", ",
+      "label": "Visible now"
+    },
+
+    "npcs": {
+      "path": "current_scene.npcs",
+      "kind": "list",
+      "join": ", ",
+      "label": "NPCs"
+    },
+
+    "recent_actions": {
+      "path": "current_scene.action_records",
+      "kind": "list_of_objects",
+      "take_last": "limits.recent_actions_max",
+      "item_template": "{command} → {result}",
+      "join": "; "
+    },
+
+    "narration_history": {
+      "path": "current_scene.narrations",
+      "kind": "list",
+      "take_last": "limits.narration_history_max",
+      "join": "\n"
+    },
+
+    "inventory": {
+      "path": "player_state.inventory",
+      "kind": "list",
+      "take_first": "limits.inventory_max",
+      "join": ", "
+    },
+
+    "recent_locations": {
+      "path": "recent_scene_summaries",
+      "kind": "list_of_objects",
+      "take_first": "limits.recent_locations_max",
+      "item_template": "{room_name} (visits: {visit_count}, last turn: {last_visit_turn})",
+      "join": "; "
+    },
+
+    "latest_transcript_excerpt": {
+      "path": "latest_transcript",
+      "kind": "scalar",
+      "truncate_chars": "limits.latest_transcript_max_chars",
+      "__comment": "Not a memory field; this is the latest raw transcript text passed in at narration time."
+    }
+  },
+
+  "blocks": [
+    {
+      "id": "location",
+      "required": true,
+      "header": null,
+      "lines": [
+        "Turn {turn}. You are in {room_name}.",
+        "{_entered_from_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_entered_from_sentence": {
+          "when_all_present": ["previous_room", "entry_command"],
+          "template": "You got here from {previous_room} by doing: {entry_command}."
+        }
+      }
+    },
+    {
+      "id": "scene",
+      "required": true,
+      "header": null,
+      "lines": [
+        "{scene_description}",
+        ""
+      ]
+    },
+    {
+      "id": "what_is_here",
+      "required": false,
+      "header": null,
+      "lines": [
+        "{_visible_sentence}",
+        "{_npcs_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_visible_sentence": {
+          "cases": [
+            {
+              "when_present": "visible_now",
+              "template": "Right now you can see: {visible_now}."
+            },
+            {
+              "when_empty": "visible_now",
+              "template": "Right now, nothing obvious stands out as an interactable object."
+            }
+          ]
+        },
+        "_npcs_sentence": {
+          "cases": [
+            {
+              "when_present": "npcs",
+              "template": "You notice: {npcs}."
+            },
+            {
+              "when_empty": "npcs",
+              "template": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "latest_turn",
+      "required": false,
+      "header": null,
+      "lines": [
+        "{_latest_engine_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_latest_engine_sentence": {
+          "cases": [
+            {
+              "when_present": "latest_transcript_excerpt",
+              "template": "The latest engine text says: {latest_transcript_excerpt}"
+            },
+            {
+              "when_empty": "latest_transcript_excerpt",
+              "template": "No new engine text was provided for this narration step."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "recent_actions",
+      "required": false,
+      "header": null,
+      "lines": [
+        "{_recent_actions_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_recent_actions_sentence": {
+          "cases": [
+            {
+              "when_present": "recent_actions",
+              "template": "Recent commands and results: {recent_actions}."
+            },
+            {
+              "when_empty": "recent_actions",
+              "template": "You haven't done anything notable in this location yet."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "narrator_memory",
+      "required": false,
+      "header": null,
+      "lines": [
+        "{_narration_history_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_narration_history_sentence": {
+          "cases": [
+            {
+              "when_present": "narration_history",
+              "template": "Previously, the narrator said:\n{narration_history}"
+            },
+            {
+              "when_empty": "narration_history",
+              "template": "The narrator hasn't described this location yet."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "inventory",
+      "required": false,
+      "header": null,
+      "lines": [
+        "{_inventory_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_inventory_sentence": {
+          "cases": [
+            {
+              "when_present": "inventory",
+              "template": "You're carrying: {inventory}."
+            },
+            {
+              "when_empty": "inventory",
+              "template": "You're carrying nothing."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "recent_locations",
+      "required": false,
+      "header": null,
+      "lines": [
+        "{_recent_locations_sentence}",
+        ""
+      ],
+      "derived_lines": {
+        "_recent_locations_sentence": {
+          "cases": [
+            {
+              "when_present": "recent_locations",
+              "template": "Recently visited: {recent_locations}."
+            },
+            {
+              "when_empty": "recent_locations",
+              "template": "You haven't visited any other locations yet."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "request",
+      "required": true,
+      "header": null,
+      "lines": [
+        "Continue the narration for the player."
+      ]
+    }
+  ]
+}

@@ -15,7 +15,40 @@ Documentation for the enrichment-focused flow now lives in `scratchpad/08_llm_me
 - `NarrationJobBuilder` (new) harvests everything needed from the memory engine. Inputs include the latest `GameMemoryStore.get_context_for_prompt()` result, trigger type (turn/idle/manual), player persona, and any queued hints. It applies configurable sliding windows (e.g., `narration_context_max_scenes`, `narration_recent_narrations`, `narration_recent_items`) so prompts remain short but information-rich. It produces:
 	- `messages`: ordered chat messages constructed from narration-specific prompts stored in config (`llm_narration_*`).
 	- `metadata`: references to the originating turn, scene, trigger, and optional dedupe tokens.
-- The builder formats the context as natural prose sections (Current Scene, Previous Scenes, Last Narrations, Inventory Highlights, Pending Triggers) instead of JSON to improve readability for the local LLM while respecting the sliding-window limits.
+- The builder formats the context as natural prose sections (Current Scene, Turn Delta, Recent Actions, Inventory Highlights, Recently Visited) instead of JSON to improve readability for the local LLM while respecting the sliding-window limits.
+
+### Canonical NarrationArtifacts + TurnHints contract (implementation target)
+To avoid “mixing facts from here and others from there”, prompt construction must consume a single memory-owned envelope.
+
+**NarrationArtifacts (produced by `GameMemoryStore.get_context_for_prompt()`):**
+- `turn_count`
+- `current_scene` (must include `current_items` as “visible now”)
+- `player_state` (inventory/score/moves)
+- `recent_scene_summaries`
+- `turn_hints` (TurnHints)
+
+**TurnHints (produced during `update_from_engine_facts(...)`):**
+- `turn`
+- `command`
+- `room_before`, `room_after`
+- `inventory_delta` (added/removed)
+- `visible_delta` (added/removed; derived from `current_items` transitions)
+- `engine_excerpt` (bounded, verbatim, last-turn-only)
+
+**Rule:** The prompt builder must not parse raw transcripts. If narration needs verbatim evidence, it uses `turn_hints.engine_excerpt` (memory-owned and bounded).
+
+### Canonical prompt composer responsibilities
+The builder should own the narration prompt contract end-to-end:
+1. Section selection and ordering (config-driven).
+2. Joining prose for readability (prose-based, not JSON).
+3. Strict per-section bounds.
+4. Dedupe rules to prevent repeating the same sentences across:
+	- scene summary
+	- recent actions
+	- turn delta
+5. Correct semantics:
+	- “Visible now” must come from `current_items`.
+	- “Known here” (optional) can come from `scene_items`.
 - `CompletionsHelper` now acts purely as transport:
 	- Accepts the prebuilt `messages` and sends them via the configured provider.
 	- Parses SDK responses and delegates normalization to `module.ai_engine_parsing.normalize_ai_payload` (free-form narration) or future enrichment schemas.
