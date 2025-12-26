@@ -5,7 +5,8 @@
     "Goal: consistent, non-convoluted prompt assembly from memory context + latest turn transcript.",
     "Renderer expectation: compute `values` from `value_sources`, then render `blocks` in order, skipping empty blocks.",
     "This file provides ONLY grounded context. Behavioral rules belong in llm_narration_system_prompt.",
-    "All facts must come from memory_context (GameMemoryStore.get_context_for_prompt) and/or latest_transcript provided by the controller."
+    "All facts must come from memory_context (GameMemoryStore.get_context_for_prompt).",
+    "If something important is only present in raw engine text, fix parsing/memory first; do not pass raw transcript into narration prompting."
   ],
 
   "rendering": {
@@ -75,6 +76,14 @@
       "join": "; "
     },
 
+    "most_recent_action": {
+      "path": "current_scene.action_records",
+      "kind": "list_of_objects",
+      "take_last": 1,
+      "item_template": "{command} → {result}",
+      "join": ""
+    },
+
     "narration_history": {
       "path": "current_scene.narrations",
       "kind": "list",
@@ -97,12 +106,7 @@
       "join": "; "
     },
 
-    "latest_transcript_excerpt": {
-      "path": "latest_transcript",
-      "kind": "scalar",
-      "truncate_chars": "limits.latest_transcript_max_chars",
-      "__comment": "Not a memory field; this is the latest raw transcript text passed in at narration time."
-    }
+    "__comment__no_latest_transcript": "Intentionally no latest_transcript in narration prompts. Use only memory-derived fields."
   },
 
   "blocks": [
@@ -168,23 +172,23 @@
       }
     },
     {
-      "id": "latest_turn",
+      "id": "most_recent_action",
       "required": false,
       "header": null,
       "lines": [
-        "{_latest_engine_sentence}",
+        "{_most_recent_action_sentence}",
         ""
       ],
       "derived_lines": {
-        "_latest_engine_sentence": {
+        "_most_recent_action_sentence": {
           "cases": [
             {
-              "when_present": "latest_transcript_excerpt",
-              "template": "The latest engine text says: {latest_transcript_excerpt}"
+              "when_present": "most_recent_action",
+              "template": "Just now: {most_recent_action}."
             },
             {
-              "when_empty": "latest_transcript_excerpt",
-              "template": "No new engine text was provided for this narration step."
+              "when_empty": "most_recent_action",
+              "template": ""
             }
           ]
         }
