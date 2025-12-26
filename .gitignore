@@ -2,6 +2,8 @@
 /log/*
 !log/.gitkeep
 
+# config
+/config/config.json
 
 # Resources
 /res/db/*
