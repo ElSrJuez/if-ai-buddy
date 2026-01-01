@@ -296,6 +296,11 @@ class GameController:
             )
             self._update_status(moves=self._moves, score=self._score, room=self._room)
 
+            # Apply canonical room change detection (same as in _async_play_turn)
+            room_changed = self._room != self._current_room_for_images or self._current_room_for_images is None
+            if room_changed:
+                self._current_room_for_images = self._room
+
             narration_started = False
             if session.intro_text:
                 context = self._memory.get_context_for_prompt()
@@ -306,6 +311,10 @@ class GameController:
                 )
                 self._schedule_narration_job(job_spec, self._room)
                 narration_started = True
+                
+                # Apply canonical scene image generation (same as in _async_play_turn)
+                if room_changed:
+                    self._schedule_scene_image_generation()
 
             self._set_engine_status(EngineStatus.READY)
             if not narration_started:
@@ -427,8 +436,8 @@ class GameController:
                 self._score = outcome.score
             if outcome.room_name:
                 self._room = outcome.room_name
-                # Track room change for scene image generation (but don't trigger yet)
-                room_changed = self._room != self._current_room_for_images
+                # Track room change for scene image generation (including first-time entry)
+                room_changed = self._room != self._current_room_for_images or self._current_room_for_images is None
                 if room_changed:
                     self._current_room_for_images = self._room
 
@@ -613,25 +622,39 @@ class GameController:
             my_logging.system_warn("AI task queue is full, skipping scene image generation")
 
     async def _generate_and_show_scene_image(self, memory_context: dict[str, Any]) -> None:
-        """Generate scene image and display in popup."""
+        """Generate scene image (or load from cache) and display in popup."""
         try:
             # Set up callbacks for SD prompt generation phases
             self._scene_image_service._on_sd_prompt_start = lambda: self._set_sd_prompt_status(SDPromptStatus.WORKING)
             self._scene_image_service._on_sd_prompt_end = lambda: self._set_sd_prompt_status(SDPromptStatus.IDLE)
             
-            result = await self._scene_image_service.generate_scene_image(
-                room_name=self._room,
-                memory_context=memory_context
-            )
-            
-            # result is (image_data, metadata_dict)
-            image_data, metadata = result
-            self._app.show_scene_image(
-                image_path=metadata.get("image_path"),
-                prompt_text=metadata.get("prompt", "No prompt available"),
-                on_thumbs_down=self._on_image_thumbs_down,
-                on_regenerate=self._on_image_regenerate
-            )
+            # Check cache first
+            cached_result = self._scene_image_service.get_cached_image(self._room)
+            if cached_result:
+                # Cache hit - display cached image
+                my_logging.system_info(f"Scene image cache hit: {self._room}")
+                image_data, metadata = cached_result
+                self._app.show_scene_image(
+                    image_path=metadata.get("image_path"),
+                    prompt_text=metadata.get("prompt", "No prompt available"),
+                    on_thumbs_down=self._on_image_thumbs_down,
+                    on_regenerate=self._on_image_regenerate
+                )
+            else:
+                # Cache miss - generate new image
+                result = await self._scene_image_service.generate_scene_image(
+                    room_name=self._room,
+                    memory_context=memory_context
+                )
+                
+                # result is (image_data, metadata_dict)
+                image_data, metadata = result
+                self._app.show_scene_image(
+                    image_path=metadata.get("image_path"),
+                    prompt_text=metadata.get("prompt", "No prompt available"),
+                    on_thumbs_down=self._on_image_thumbs_down,
+                    on_regenerate=self._on_image_regenerate
+                )
             
         except Exception as exc:
             my_logging.system_warn(f"Scene image generation failed: {exc}")
