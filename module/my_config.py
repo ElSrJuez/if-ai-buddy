@@ -26,6 +26,20 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
     _config.clear()
     _config.update(data)
     apply_aliases(_config)
+    
+    # Load environment variables for sensitive config
+    env_path = _PROJECT_ROOT / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").strip().split("\n"):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip())
+    
+    # Override with environment variables
+    if "DFROTZ_BASE_URL" in os.environ:
+        _config["dfrotz_base_url"] = os.environ["DFROTZ_BASE_URL"]
+    
     validate_config(_config, sections=("controller", "llm", "logging", "persistence", "schema"))
     _config["_project_root"] = str(_PROJECT_ROOT)
     _config["_config_path"] = str(path)

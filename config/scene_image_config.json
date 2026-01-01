@@ -1,18 +1,14 @@
 {
-  "sd_server_timeout": 90,
-  "default_size": "256x256",
+  "sd_server_timeout": 320,
   "output_format": "png", 
-  "generation_steps": 10,
   "enable_scene_images": true,
   "auto_display_on_new_scene": true,
   "cache_directory": "res/scene-img",
   "placeholder_image_path": "res/interactive-fiction-ai-buddy-default.png",
   "quality_presets": {
-    "low": 4,
-    "medium": 10, 
-    "high": 20
+    "medium": {"steps": 4, "size": "256x256"},
+    "high": {"steps": 2, "size": "512x512"}
   },
   "default_quality": "medium",
-  "regen_quality": "high",
-  "negative_prompt": "blurry, low quality, distorted, text, watermark, UI elements, buttons, menus"
+  "regen_quality": "high"
 }
