@@ -53,6 +53,15 @@ class SDStatus(Enum):
     ERROR = "Error"
 
 
+class SDPromptStatus(Enum):
+    """SD Prompt Engine status (LLM generating diffusion prompts)."""
+
+    IDLE = "Idle"
+    WORKING = "Working"
+    READY = "Ready"
+    ERROR = "Error"
+
+
 @dataclass(frozen=True)
 class StatusSnapshot:
     """Immutable snapshot of game and AI status."""
@@ -65,6 +74,7 @@ class StatusSnapshot:
     engine_status: EngineStatus = EngineStatus.IDLE
     ai_status: AIStatus = AIStatus.IDLE
     sd_status: SDStatus = SDStatus.IDLE
+    sd_prompt_status: SDPromptStatus = SDPromptStatus.IDLE
 
     @classmethod
     def default(cls, player: str, game: str) -> StatusSnapshot:
@@ -80,6 +90,7 @@ class StatusSnapshot:
         engine_status: EngineStatus | None = None,
         ai_status: AIStatus | None = None,
         sd_status: SDStatus | None = None,
+        sd_prompt_status: SDPromptStatus | None = None,
     ) -> StatusSnapshot:
         """Return a new snapshot with updated fields."""
         return StatusSnapshot(
@@ -91,6 +102,7 @@ class StatusSnapshot:
             engine_status=engine_status if engine_status is not None else self.engine_status,
             ai_status=ai_status if ai_status is not None else self.ai_status,
             sd_status=sd_status if sd_status is not None else self.sd_status,
+            sd_prompt_status=sd_prompt_status if sd_prompt_status is not None else self.sd_prompt_status,
         )
 
 
@@ -268,6 +280,7 @@ class StatusBar(Static):
         engine_color = self._status_color(s.engine_status)
         ai_color = self._status_color(s.ai_status)
         sd_color = self._status_color(s.sd_status)
+        sd_prompt_color = self._status_color(s.sd_prompt_status)
         return (
             f"[bold]{s.player}[/bold] | "
             f"Game: {s.game} | "
@@ -275,10 +288,11 @@ class StatusBar(Static):
             f"Moves: {s.moves} Score: {s.score} | "
             f"[{engine_color}]Engine: {s.engine_status.value}[/{engine_color}] | "
             f"[{ai_color}]AI: {s.ai_status.value}[/{ai_color}] | "
-            f"[{sd_color}]SD: {s.sd_status.value}[/{sd_color}]"
+            f"[{sd_color}]SD: {s.sd_status.value}[/{sd_color}] | "
+            f"[{sd_prompt_color}]SD Prompt: {s.sd_prompt_status.value}[/{sd_prompt_color}]"
         )
 
-    def _status_color(self, status: EngineStatus | AIStatus | SDStatus) -> str:
+    def _status_color(self, status: EngineStatus | AIStatus | SDStatus | SDPromptStatus) -> str:
         """Return color code for a status enum."""
         my_logging.system_debug(f"Status color chosen for {status}: calculating")
         if isinstance(status, EngineStatus):
@@ -313,7 +327,7 @@ class StatusBar(Static):
         """Update the status snapshot and trigger re-render."""
         self.status = snapshot
         my_logging.system_info(
-            f"Status updated: player={snapshot.player}, room={snapshot.room}, moves={snapshot.moves}, score={snapshot.score}, engine={snapshot.engine_status.name}, ai={snapshot.ai_status.name}, sd={snapshot.sd_status.name}"
+            f"Status updated: player={snapshot.player}, room={snapshot.room}, moves={snapshot.moves}, score={snapshot.score}, engine={snapshot.engine_status.name}, ai={snapshot.ai_status.name}, sd={snapshot.sd_status.name}, sd_prompt={snapshot.sd_prompt_status.name}"
         )
 
 
@@ -418,10 +432,7 @@ class IFBuddyTUI:
             self.status_bar.update_status(snapshot)
 
     def show_scene_image(self, image_path: str | None, prompt_text: str, on_thumbs_down: Callable[[], None], on_regenerate: Callable[[], None]) -> None:
-        """Show the scene image popup as a modal overlay."""
-        if not self._app:
-            return
-        
+        """Show the scene image in OS desktop popup window."""
         # Load image data if path provided
         image_data: bytes | None = None
         if image_path:
@@ -436,6 +447,7 @@ class IFBuddyTUI:
         if hasattr(self, '_app') and hasattr(self._app, 'status_bar') and self._app.status_bar:
             current_room = self._app.status_bar.status.room
         
+        # Create desktop popup
         popup = SceneImagePopup(
             room_name=current_room,
             image_data=image_data,
@@ -445,7 +457,10 @@ class IFBuddyTUI:
             on_regenerate=on_regenerate,
             on_hide=None  # Let popup handle its own hide logic
         )
-        self._app.push_screen(popup)
+        
+        # Show desktop window instead of Textual modal
+        popup.show()
+        my_logging.system_info(f"Scene image desktop popup shown: {current_room}")
 
     # Engine status updates delegated to controller; remove duplication
 

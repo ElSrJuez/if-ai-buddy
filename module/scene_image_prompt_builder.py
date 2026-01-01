@@ -113,6 +113,24 @@ class SceneImagePromptBuilder:
             limited_items = value[:max_items] if len(value) > max_items else value
             return ", ".join(str(item) for item in limited_items)
         
+        elif transform == "last_item" and isinstance(value, list):
+            # Get the last item from a list (most recent)
+            if len(value) == 0:
+                return ""
+            last_item = value[-1]
+            # If it's a dict, get the specified field
+            if isinstance(last_item, dict):
+                field = config.get("field", "")
+                if field and field in last_item:
+                    result = str(last_item[field])
+                    # Apply max_length if specified
+                    max_length = config.get("max_length")
+                    if max_length and len(result) > max_length:
+                        return result[:max_length]
+                    return result
+                return str(last_item)
+            return str(last_item)
+        
         elif isinstance(value, list):
             # Default list handling - join with spaces
             return " ".join(str(item) for item in value)

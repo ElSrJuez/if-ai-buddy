@@ -1,66 +1,23 @@
-"""Scene image popup widget for displaying generated scene images."""
+"""Scene image popup as OS desktop window for displaying generated images.
+
+This module provides a real desktop popup window since Textual cannot display images.
+Uses tkinter to create an OS-native window with actual image display and action buttons.
+"""
+
 from __future__ import annotations
 
-from typing import Optional, Callable
-import base64
+import tkinter as tk
+from tkinter import ttk
+from PIL import Image, ImageTk
+import io
+from typing import Callable, Optional
 from pathlib import Path
-
-from textual import on
-from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Button, Static, Label
-from textual.reactive import reactive
 
 from module import my_logging
 
 
-class SceneImagePopup(ModalScreen):
-    """Modal popup for displaying scene images with action buttons."""
-    
-    DEFAULT_CSS = """
-    SceneImagePopup {
-        align: center middle;
-    }
-    
-    #popup_container {
-        width: 60;
-        height: 25;
-        background: $surface;
-        border: solid $primary;
-        padding: 1;
-    }
-    
-    #room_title {
-        text-align: center;
-        text-style: bold;
-        margin-bottom: 1;
-    }
-    
-    #image_display {
-        height: 10;
-        text-align: center;
-        border: solid $secondary;
-        margin: 1 0;
-        padding: 1;
-    }
-    
-    #prompt_display {
-        height: auto;
-        margin: 1 0;
-        padding: 1;
-        border: solid $accent;
-    }
-    
-    #action_buttons {
-        height: auto;
-        margin-top: 1;
-    }
-    
-    .action_button {
-        margin: 0 1;
-    }
-    """
+class SceneImagePopup:
+    """OS desktop popup window for displaying scene images with action controls."""
     
     def __init__(
         self, 
@@ -73,7 +30,7 @@ class SceneImagePopup(ModalScreen):
         on_regenerate: Optional[Callable[[], None]] = None,
         on_hide: Optional[Callable[[], None]] = None
     ) -> None:
-        """Initialize scene image popup.
+        """Initialize scene image desktop popup.
         
         Args:
             room_name: Name of the current room/scene
@@ -84,7 +41,6 @@ class SceneImagePopup(ModalScreen):
             on_regenerate: Callback for regenerate action
             on_hide: Callback for hide action
         """
-        super().__init__()
         self.room_name = room_name
         self.image_data = image_data
         self.prompt_text = prompt_text
@@ -93,73 +49,153 @@ class SceneImagePopup(ModalScreen):
         self._on_regenerate = on_regenerate
         self._on_hide = on_hide
         
+        self._window: Optional[tk.Toplevel] = None
+        self._image_label: Optional[tk.Label] = None
+        
         my_logging.system_debug(f"SceneImagePopup created: {room_name} ({quality})")
     
-    def compose(self) -> ComposeResult:
-        """Compose the popup layout."""
-        with Container(id="popup_container"):
-            yield Label(self.room_name, id="room_title")
-            yield self._create_image_display()
-            yield self._create_prompt_display()
-            yield self._create_action_buttons()
+    def show(self) -> None:
+        """Show the desktop popup window."""
+        if self._window is not None:
+            self._window.lift()
+            return
+            
+        # Create root window if it doesn't exist
+        root = tk._default_root
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()  # Hide the root window
+        
+        # Create popup window
+        self._window = tk.Toplevel(root)
+        self._window.title(f"Scene Image - {self.room_name}")
+        self._window.geometry("600x500")
+        self._window.resizable(True, True)
+        
+        # Configure window to stay on top but allow interaction with main app
+        self._window.attributes('-topmost', False)
+        self._window.focus_set()
+        
+        # Handle window close
+        self._window.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        
+        self._create_widgets()
+        self._update_content()
+        
+        my_logging.system_info(f"Scene image popup shown: {self.room_name}")
     
-    def _create_image_display(self) -> Static:
-        """Create the image display widget."""
+    def _create_widgets(self) -> None:
+        """Create the popup window widgets."""
+        if not self._window:
+            return
+            
+        # Main frame
+        main_frame = ttk.Frame(self._window, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Configure grid weights
+        self._window.columnconfigure(0, weight=1)
+        self._window.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)
+        
+        # Room title
+        title_label = ttk.Label(main_frame, text=self.room_name, font=('Arial', 14, 'bold'))
+        title_label.grid(row=0, column=0, pady=(0, 10))
+        
+        # Image display area
+        image_frame = ttk.LabelFrame(main_frame, text="Scene Image", padding="10")
+        image_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        image_frame.columnconfigure(0, weight=1)
+        image_frame.rowconfigure(0, weight=1)
+        
+        self._image_label = ttk.Label(image_frame, text="Loading image...", anchor=tk.CENTER)
+        self._image_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Prompt display
+        prompt_frame = ttk.LabelFrame(main_frame, text="Generation Prompt", padding="5")
+        prompt_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        prompt_frame.columnconfigure(0, weight=1)
+        
+        prompt_text = tk.Text(prompt_frame, height=3, wrap=tk.WORD, state=tk.DISABLED)
+        prompt_text.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        
+        # Insert prompt text
+        prompt_text.config(state=tk.NORMAL)
+        prompt_text.insert(tk.END, self.prompt_text or "No prompt available")
+        prompt_text.config(state=tk.DISABLED)
+        
+        # Action buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=3, column=0, pady=(10, 0))
+        
+        thumbs_down_btn = ttk.Button(button_frame, text="👎 Feedback", command=self._handle_thumbs_down)
+        thumbs_down_btn.grid(row=0, column=0, padx=(0, 5))
+        
+        regen_btn = ttk.Button(button_frame, text="🔄 Regenerate", command=self._handle_regenerate)
+        regen_btn.grid(row=0, column=1, padx=5)
+        
+        hide_btn = ttk.Button(button_frame, text="❌ Hide", command=self._handle_hide)
+        hide_btn.grid(row=0, column=2, padx=(5, 0))
+    
+    def _update_content(self) -> None:
+        """Update the popup content with current image and text."""
+        if not self._image_label:
+            return
+            
         if self.image_data:
-            # For terminal UI, we'll show image info instead of actual image
-            image_size = len(self.image_data)
-            size_kb = image_size / 1024
-            display_text = f"🖼️  Scene Image ({size_kb:.1f}KB)\n[Image would be displayed here]\n{self.quality.title()} Quality"
+            try:
+                # Load image from bytes
+                image = Image.open(io.BytesIO(self.image_data))
+                
+                # Resize to fit display area while maintaining aspect ratio
+                display_size = (500, 350)
+                image.thumbnail(display_size, Image.Resampling.LANCZOS)
+                
+                # Convert to PhotoImage for tkinter
+                photo = ImageTk.PhotoImage(image)
+                self._image_label.configure(image=photo, text="")
+                
+                # Keep a reference to prevent garbage collection
+                self._image_label.image = photo  # type: ignore
+                
+                my_logging.system_debug(f"Scene image displayed: {image.size}")
+                
+            except Exception as exc:
+                self._image_label.configure(text=f"Error loading image: {exc}", image="")
+                my_logging.system_warn(f"Failed to display scene image: {exc}")
         else:
-            display_text = "📄  No Image Available\n[Placeholder or Logo]\nGenerate image to view"
-        
-        return Static(display_text, id="image_display")
+            self._image_label.configure(text="No image available\n\nGenerate image to view", image="")
     
-    def _create_prompt_display(self) -> Static:
-        """Create the prompt text display."""
-        if self.prompt_text:
-            display_text = f"Prompt: {self.prompt_text}"
-        else:
-            display_text = "No prompt information available"
-        
-        return Static(display_text, id="prompt_display")
-    
-    def _create_action_buttons(self) -> Horizontal:
-        """Create the action button container."""
-        return Horizontal(
-            Button("👎 Feedback", id="thumbs_down_btn", classes="action_button"),
-            Button("🔄 Regen", id="regen_btn", classes="action_button"), 
-            Button("❌ Hide", id="hide_btn", classes="action_button"),
-            id="action_buttons"
-        )
-    
-    @on(Button.Pressed, "#thumbs_down_btn")
-    def on_thumbs_down_pressed(self) -> None:
-        """Handle thumbs down button press."""
+    def _handle_thumbs_down(self) -> None:
+        """Handle thumbs down button click."""
         my_logging.system_info(f"Scene image thumbs down: {self.room_name}")
         if self._on_thumbs_down:
             self._on_thumbs_down()
-        # Note: Don't auto-dismiss popup, let callback decide
     
-    @on(Button.Pressed, "#regen_btn")
-    def on_regenerate_pressed(self) -> None:
-        """Handle regenerate button press."""
+    def _handle_regenerate(self) -> None:
+        """Handle regenerate button click."""
         my_logging.system_info(f"Scene image regenerate: {self.room_name}")
         if self._on_regenerate:
             self._on_regenerate()
-        # Note: Don't auto-dismiss popup, let callback decide
     
-    @on(Button.Pressed, "#hide_btn")
-    def on_hide_pressed(self) -> None:
-        """Handle hide button press."""
+    def _handle_hide(self) -> None:
+        """Handle hide button click."""
         my_logging.system_info(f"Scene image popup hidden: {self.room_name}")
         if self._on_hide:
             self._on_hide()
-        self.dismiss()
+        self.close()
     
-    def key_escape(self) -> None:
-        """Handle escape key - same as hide."""
-        self.on_hide_pressed()
+    def _on_window_close(self) -> None:
+        """Handle window close event."""
+        self._handle_hide()
+    
+    def close(self) -> None:
+        """Close the popup window."""
+        if self._window:
+            self._window.destroy()
+            self._window = None
+            self._image_label = None
     
     def update_image(self, image_data: bytes, prompt_text: str, quality: str) -> None:
         """Update popup with new image data."""
@@ -167,30 +203,16 @@ class SceneImagePopup(ModalScreen):
         self.prompt_text = prompt_text
         self.quality = quality
         
-        # Update image display
-        image_display = self.query_one("#image_display", Static)
-        image_size = len(image_data)
-        size_kb = image_size / 1024
-        display_text = f"🖼️  Scene Image ({size_kb:.1f}KB)\n[Image would be displayed here]\n{quality.title()} Quality"
-        image_display.update(display_text)
-        
-        # Update prompt display
-        prompt_display = self.query_one("#prompt_display", Static)
-        prompt_display.update(f"Prompt: {prompt_text}")
+        if self._window and self._window.winfo_exists():
+            self._update_content()
         
         my_logging.system_debug(f"SceneImagePopup updated: {self.room_name} ({quality})")
     
     def show_generation_progress(self) -> None:
         """Show generation in progress state."""
-        image_display = self.query_one("#image_display", Static)
-        image_display.update("🔄  Generating Image...\n[Please wait]\nThis may take a moment")
-        
-        # Disable regenerate button during generation
-        regen_btn = self.query_one("#regen_btn", Button)
-        regen_btn.disabled = True
+        if self._image_label:
+            self._image_label.configure(text="🔄 Generating Image...\n\nPlease wait\nThis may take a moment", image="")
     
     def hide_generation_progress(self) -> None:
-        """Hide generation progress and re-enable buttons."""
-        # Re-enable regenerate button
-        regen_btn = self.query_one("#regen_btn", Button)
-        regen_btn.disabled = False
+        """Hide generation progress and restore normal state."""
+        self._update_content()

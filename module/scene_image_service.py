@@ -168,11 +168,25 @@ class SceneImageService:
         
         try:
             # Generate diffusion prompt via LLM
+            if hasattr(self, '_on_sd_prompt_start') and callable(self._on_sd_prompt_start):
+                self._on_sd_prompt_start()
+                
             diffusion_prompt = await self._prompt_builder.generate_sd_prompt(
                 memory_context=job.memory_context
             )
             
+            if hasattr(self, '_on_sd_prompt_end') and callable(self._on_sd_prompt_end):
+                self._on_sd_prompt_end()
+            
             my_logging.system_info(f"LLM generated diffusion prompt for {job.room_name}: '{diffusion_prompt}'")
+            
+            # Get quality configuration from presets
+            quality_presets = self._config.get("quality_presets", {})
+            if job.quality not in quality_presets:
+                available_qualities = list(quality_presets.keys())
+                raise ValueError(f"Quality '{job.quality}' not found. Available: {available_qualities}")
+            
+            quality_config = quality_presets[job.quality]
             
             # Create SD server request
             request = ImageGenerationRequest(

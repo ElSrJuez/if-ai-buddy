@@ -28,6 +28,7 @@ from module.ui_helper import (
     AIStatus,
     EngineStatus,
     SDStatus,
+    SDPromptStatus,
     IFBuddyTUI,
     IFBuddyApp,
     StatusSnapshot,
@@ -122,6 +123,7 @@ class GameController:
         # Initialize scene image service
         self._scene_image_service = SceneImageService(self.config)
         self._current_room_for_images: str | None = None
+        self._schedule_deferred_scene_image = False
 
         # Status tracking
         self._moves = 0
@@ -311,10 +313,10 @@ class GameController:
                 self._score = outcome.score
             if outcome.room_name:
                 self._room = outcome.room_name
-                # Trigger scene image generation on room change
-                if self._room != self._current_room_for_images:
+                # Track room change for scene image generation (but don't trigger yet)
+                room_changed = self._room != self._current_room_for_images
+                if room_changed:
                     self._current_room_for_images = self._room
-                    self._schedule_scene_image_generation()
 
             self._memory.update_from_engine_facts(
                 facts,
@@ -336,6 +338,10 @@ class GameController:
                 latest_transcript=transcript,
             )
             self._schedule_narration_job(job_spec, self._room)
+            
+            # Trigger scene image generation AFTER narration is scheduled
+            if room_changed:
+                self._schedule_scene_image_generation()
 
             self._set_engine_status(EngineStatus.READY)
 
@@ -481,7 +487,15 @@ class GameController:
         self._active_narration_jobs = 0
 
     def _schedule_scene_image_generation(self) -> None:
-        """Trigger scene image generation and display for the current room."""
+        """Trigger scene image generation after AI work is complete."""
+        # Check if AI is already busy with narration
+        if self._active_narration_jobs > 0:
+            # Queue scene image generation to run after narration completes
+            my_logging.system_debug("Scene image generation deferred - AI busy with narration")
+            self._schedule_deferred_scene_image = True
+            return
+            
+        # AI is free, proceed with scene image generation
         memory_context = self._memory.get_context_for_prompt()
         
         # Schedule image generation as background task
@@ -492,6 +506,10 @@ class GameController:
         """Generate scene image and display in popup."""
         try:
             self._set_sd_status(SDStatus.GENERATING)
+            # Set up callbacks for SD prompt generation phases
+            self._scene_image_service._on_sd_prompt_start = lambda: self._set_sd_prompt_status(SDPromptStatus.WORKING)
+            self._scene_image_service._on_sd_prompt_end = lambda: self._set_sd_prompt_status(SDPromptStatus.READY)
+            
             result = await self._scene_image_service.generate_scene_image(
                 room_name=self._room,
                 memory_context=memory_context
@@ -581,6 +599,12 @@ class GameController:
             self._active_narration_jobs = max(0, self._active_narration_jobs - 1)
             if self._active_narration_jobs == 0:
                 self._set_ai_status(AIStatus.READY)
+                
+                # Process deferred scene image generation if queued
+                if self._schedule_deferred_scene_image:
+                    self._schedule_deferred_scene_image = False
+                    my_logging.system_debug("Processing deferred scene image generation after narration cancel")
+                    self._schedule_scene_image_generation()
             return
 
         exception = task.exception()
@@ -590,6 +614,12 @@ class GameController:
         self._active_narration_jobs = max(0, self._active_narration_jobs - 1)
         if self._active_narration_jobs == 0:
             self._set_ai_status(AIStatus.READY)
+            
+            # Process deferred scene image generation if queued
+            if self._schedule_deferred_scene_image:
+                self._schedule_deferred_scene_image = False
+                my_logging.system_debug("Processing deferred scene image generation")
+                self._schedule_scene_image_generation()
 
     # ------------------------------------------------------------------
     # Status helpers
@@ -611,6 +641,10 @@ class GameController:
     def _set_sd_status(self, status: SDStatus) -> None:
         """Set SD engine status in UI."""
         self._update_status(sd_status=status)
+
+    def _set_sd_prompt_status(self, status: SDPromptStatus) -> None:
+        """Set SD Prompt Engine status in UI."""
+        self._update_status(sd_prompt_status=status)
 
 
 

@@ -40,10 +40,14 @@
       "path": "player_name"
     },
     "entering_action": {
-      "path": "turn_hints.command"
+      "path": "current_scene.action_records",
+      "transform": "last_item",
+      "field": "command"
     },
     "recent_events": {
-      "path": "turn_hints.engine_excerpt",
+      "path": "current_scene.action_records",
+      "transform": "last_item", 
+      "field": "result",
       "max_length": 100
     }
   }
