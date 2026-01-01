@@ -1,0 +1,57 @@
+{
+  "spec_version": "1.0",
+  "__comment": [
+    "Scene image prompt template for generating concise AI diffusion prompts.",
+    "Goal: Transform scene memory context into effective visual description prompts.",
+    "Constraint: Final prompt must be ≤120 characters for efficient local AI processing.",
+    "Style: Consistent pencil art illustration aesthetic for text adventure scenes."
+  ],
+
+  "system_prompt": "You are a concise visual prompt generator for text adventure scenes. Create brief, effective AI diffusion prompts that capture the essence of interactive fiction locations. Focus on visual elements, atmosphere, and key objects. Always stay under 120 characters total.",
+
+  "scene_template": "Create a brief, concise but effective AI diffusion prompt that will generate: A detailed pencil art illustration intended to describe an interactive fiction scene titled {room_name}, with description elements {description}, visible items {visible_items}, {playername} entered the scene by {enteringaction} and here are the most recent events {shortevents}. The prompt must be less than 120 characters so use your token real estate wisely.",
+
+  "context_sections": [
+    "room_name",
+    "description", 
+    "visible_items",
+    "entering_action",
+    "recent_events"
+  ],
+
+  "style_prefix": "detailed pencil art illustration of",
+  "max_prompt_length": 120,
+  "fallback_template": "pencil art: {room_name}, {key_items}",
+
+  "value_sources": {
+    "room_name": {
+      "path": "current_scene.room_name",
+      "fallback": "Unknown Location"
+    },
+    "description": {
+      "path": "current_scene.description_lines",
+      "transform": "join_truncate",
+      "max_length": 200,
+      "fallback": ""
+    },
+    "visible_items": {
+      "path": "current_scene.current_items", 
+      "transform": "join_list",
+      "max_items": 3,
+      "fallback": ""
+    },
+    "playername": {
+      "path": "player_state.name",
+      "fallback": "adventurer"
+    },
+    "entering_action": {
+      "path": "turn_hints.command",
+      "fallback": "arrived"
+    },
+    "recent_events": {
+      "path": "turn_hints.engine_excerpt",
+      "max_length": 100,
+      "fallback": ""
+    }
+  }
+}
