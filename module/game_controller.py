@@ -23,9 +23,11 @@ from module.rest_helper import DfrotzClient
 from module.game_engine_heuristics import parse_engine_facts
 from module.config_registry import resolve_template_path
 from module.game_memory import GameMemoryStore
+from module.scene_image_service import SceneImageService
 from module.ui_helper import (
     AIStatus,
     EngineStatus,
+    SDStatus,
     IFBuddyTUI,
     IFBuddyApp,
     StatusSnapshot,
@@ -116,6 +118,10 @@ class GameController:
         self._narration_builder = NarrationJobBuilder(self.config)
         self._narration_tasks: set[asyncio.Task[Any]] = set()
         self._active_narration_jobs = 0
+
+        # Initialize scene image service
+        self._scene_image_service = SceneImageService(self.config)
+        self._current_room_for_images: str | None = None
 
         # Status tracking
         self._moves = 0
@@ -305,6 +311,10 @@ class GameController:
                 self._score = outcome.score
             if outcome.room_name:
                 self._room = outcome.room_name
+                # Trigger scene image generation on room change
+                if self._room != self._current_room_for_images:
+                    self._current_room_for_images = self._room
+                    self._schedule_scene_image_generation()
 
             self._memory.update_from_engine_facts(
                 facts,
@@ -470,6 +480,70 @@ class GameController:
         self._narration_tasks.clear()
         self._active_narration_jobs = 0
 
+    def _schedule_scene_image_generation(self) -> None:
+        """Trigger scene image generation and display for the current room."""
+        memory_context = self._memory.get_context_for_prompt()
+        
+        # Schedule image generation as background task
+        task = asyncio.create_task(self._generate_and_show_scene_image(memory_context))
+        task.add_done_callback(self._on_scene_image_done)
+
+    async def _generate_and_show_scene_image(self, memory_context: dict[str, Any]) -> None:
+        """Generate scene image and display in popup."""
+        try:
+            self._set_sd_status(SDStatus.GENERATING)
+            result = await self._scene_image_service.generate_scene_image(
+                room_name=self._room,
+                memory_context=memory_context
+            )
+            self._set_sd_status(SDStatus.READY)
+            
+            # result is (image_data, metadata_dict)
+            image_data, metadata = result
+            self._app.show_scene_image(
+                image_path=metadata.get("image_path"),
+                prompt_text=metadata.get("prompt", "No prompt available"),
+                on_thumbs_down=self._on_image_thumbs_down,
+                on_regenerate=self._on_image_regenerate
+            )
+            
+        except Exception as exc:
+            self._set_sd_status(SDStatus.ERROR)
+            my_logging.system_warn(f"Scene image generation failed: {exc}")
+            # Show popup with no image but with regenerate option
+            self._app.show_scene_image(
+                image_path=None,
+                prompt_text=f"Image generation failed: {exc}",
+                on_thumbs_down=self._on_image_thumbs_down,
+                on_regenerate=self._on_image_regenerate
+            )
+
+    def _on_scene_image_done(self, task: asyncio.Task[None]) -> None:
+        """Handle completion of scene image generation task."""
+        if task.cancelled():
+            self._set_sd_status(SDStatus.IDLE)
+            return
+        
+        exception = task.exception()
+        if exception:
+            self._set_sd_status(SDStatus.ERROR)
+            my_logging.system_warn(f"Scene image generation task failed: {exception}")
+        # Note: Success case sets status within _generate_and_show_scene_image
+        if exception:
+            self._set_sd_status(SDStatus.ERROR)
+            my_logging.system_warn(f"Scene image generation task failed: {exception}")
+        # Note: Success case sets status within _generate_and_show_scene_image
+
+    def _on_image_thumbs_down(self) -> None:
+        """Handle thumbs down feedback on scene image."""
+        my_logging.system_info("User provided thumbs down feedback on scene image")
+        # TODO: Implement feedback collection/storage
+
+    def _on_image_regenerate(self) -> None:
+        """Handle regenerate request for scene image."""
+        my_logging.system_info("User requested scene image regeneration")
+        self._schedule_scene_image_generation()
+
     def _schedule_narration_job(
         self,
         job_spec: NarrationJobSpec,
@@ -533,6 +607,10 @@ class GameController:
     def _set_ai_status(self, status: AIStatus) -> None:
         """Set AI status in UI."""
         self._update_status(ai_status=status)
+
+    def _set_sd_status(self, status: SDStatus) -> None:
+        """Set SD engine status in UI."""
+        self._update_status(sd_status=status)
 
 
 

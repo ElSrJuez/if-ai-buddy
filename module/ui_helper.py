@@ -20,6 +20,7 @@ from textual.widgets import (
     Static,
 )
 from textual.reactive import reactive
+from .scene_image_popup import SceneImagePopup
 
 # This is essential to disable rich's spammy error handler. This is necessary to host here, because this undesired behavior is triggered by the textual imports.
 import sys
@@ -43,6 +44,15 @@ class EngineStatus(Enum):
     ERROR = "Error"
 
 
+class SDStatus(Enum):
+    """Stable Diffusion engine status."""
+
+    IDLE = "Idle"
+    GENERATING = "Generating"
+    READY = "Ready"
+    ERROR = "Error"
+
+
 @dataclass(frozen=True)
 class StatusSnapshot:
     """Immutable snapshot of game and AI status."""
@@ -54,6 +64,7 @@ class StatusSnapshot:
     score: int = 0
     engine_status: EngineStatus = EngineStatus.IDLE
     ai_status: AIStatus = AIStatus.IDLE
+    sd_status: SDStatus = SDStatus.IDLE
 
     @classmethod
     def default(cls, player: str, game: str) -> StatusSnapshot:
@@ -68,6 +79,7 @@ class StatusSnapshot:
         score: int | None = None,
         engine_status: EngineStatus | None = None,
         ai_status: AIStatus | None = None,
+        sd_status: SDStatus | None = None,
     ) -> StatusSnapshot:
         """Return a new snapshot with updated fields."""
         return StatusSnapshot(
@@ -78,6 +90,7 @@ class StatusSnapshot:
             score=score if score is not None else self.score,
             engine_status=engine_status if engine_status is not None else self.engine_status,
             ai_status=ai_status if ai_status is not None else self.ai_status,
+            sd_status=sd_status if sd_status is not None else self.sd_status,
         )
 
 
@@ -254,16 +267,18 @@ class StatusBar(Static):
         s = self.status
         engine_color = self._status_color(s.engine_status)
         ai_color = self._status_color(s.ai_status)
+        sd_color = self._status_color(s.sd_status)
         return (
             f"[bold]{s.player}[/bold] | "
             f"Game: {s.game} | "
             f"Room: {s.room} | "
             f"Moves: {s.moves} Score: {s.score} | "
             f"[{engine_color}]Engine: {s.engine_status.value}[/{engine_color}] | "
-            f"[{ai_color}]AI: {s.ai_status.value}[/{ai_color}]"
+            f"[{ai_color}]AI: {s.ai_status.value}[/{ai_color}] | "
+            f"[{sd_color}]SD: {s.sd_status.value}[/{sd_color}]"
         )
 
-    def _status_color(self, status: EngineStatus | AIStatus) -> str:
+    def _status_color(self, status: EngineStatus | AIStatus | SDStatus) -> str:
         """Return color code for a status enum."""
         my_logging.system_debug(f"Status color chosen for {status}: calculating")
         if isinstance(status, EngineStatus):
@@ -272,6 +287,15 @@ class StatusBar(Static):
             elif status == EngineStatus.BUSY:
                 return "blue"
             elif status == EngineStatus.READY:
+                return "green"
+            else:
+                return "dim"
+        elif isinstance(status, SDStatus):
+            if status == SDStatus.ERROR:
+                return "red"
+            elif status == SDStatus.GENERATING:
+                return "blue"
+            elif status == SDStatus.READY:
                 return "green"
             else:
                 return "dim"
@@ -289,7 +313,7 @@ class StatusBar(Static):
         """Update the status snapshot and trigger re-render."""
         self.status = snapshot
         my_logging.system_info(
-            f"Status updated: player={snapshot.player}, room={snapshot.room}, moves={snapshot.moves}, score={snapshot.score}, engine={snapshot.engine_status.name}, ai={snapshot.ai_status.name}"
+            f"Status updated: player={snapshot.player}, room={snapshot.room}, moves={snapshot.moves}, score={snapshot.score}, engine={snapshot.engine_status.name}, ai={snapshot.ai_status.name}, sd={snapshot.sd_status.name}"
         )
 
 
@@ -393,6 +417,36 @@ class IFBuddyTUI:
         if self.status_bar:
             self.status_bar.update_status(snapshot)
 
+    def show_scene_image(self, image_path: str | None, prompt_text: str, on_thumbs_down: Callable[[], None], on_regenerate: Callable[[], None]) -> None:
+        """Show the scene image popup as a modal overlay."""
+        if not self._app:
+            return
+        
+        # Load image data if path provided
+        image_data: bytes | None = None
+        if image_path:
+            try:
+                from pathlib import Path
+                image_data = Path(image_path).read_bytes()
+            except Exception as exc:
+                my_logging.system_warn(f"Failed to load image {image_path}: {exc}")
+        
+        # Get current room from the app's status bar
+        current_room = "Unknown"
+        if hasattr(self, '_app') and hasattr(self._app, 'status_bar') and self._app.status_bar:
+            current_room = self._app.status_bar.status.room
+        
+        popup = SceneImagePopup(
+            room_name=current_room,
+            image_data=image_data,
+            prompt_text=prompt_text,
+            quality="medium",
+            on_thumbs_down=on_thumbs_down,
+            on_regenerate=on_regenerate,
+            on_hide=None  # Let popup handle its own hide logic
+        )
+        self._app.push_screen(popup)
+
     # Engine status updates delegated to controller; remove duplication
 
     # AI status updates delegated to controller; remove duplication
@@ -487,7 +541,8 @@ class IFBuddyApp(App):
 
 __all__ = [
     "AIStatus",
-    "EngineStatus",
+    "EngineStatus", 
+    "SDStatus",
     "StatusSnapshot",
     "IFBuddyTUI",
     "IFBuddyApp",

@@ -28,11 +28,12 @@ class SceneImageJob:
 class SceneImageService:
     """Orchestrates scene image generation workflow with cache-first approach."""
     
-    def __init__(self) -> None:
+    def __init__(self, main_config: dict[str, Any]) -> None:
         """Initialize service with configuration and dependencies."""
         self._config = my_config.load_scene_image_config()
         self._cache = SceneImageCache()
-        self._prompt_builder = SceneImagePromptBuilder(self._config)
+        # Pass main config to prompt builder for LLM settings
+        self._prompt_builder = SceneImagePromptBuilder(main_config)
         self._sd_client = SDServerClient()
         self._enabled = self._config.get("enable_scene_images", True)
         
@@ -166,23 +167,16 @@ class SceneImageService:
         self._generation_in_progress = job
         
         try:
-            # Build meta-prompt from memory context (for LLM)
-            prompt_spec = self._prompt_builder.build_meta_prompt(
+            # Generate diffusion prompt via LLM
+            diffusion_prompt = await self._prompt_builder.generate_sd_prompt(
                 memory_context=job.memory_context
             )
             
-            my_logging.system_info(f"Generated meta-prompt for {job.room_name}: {len(prompt_spec.meta_prompt)} chars")
-            
-            # TODO: Call LLM with prompt_spec.meta_prompt to get diffusion prompt
-            # For now, raise NotImplementedError until LLM integration
-            raise NotImplementedError("LLM integration for scene image generation not yet implemented")
-            
-            # Get quality configuration
-            quality_config = self._config["quality_presets"][job.quality]
+            my_logging.system_info(f"LLM generated diffusion prompt for {job.room_name}: '{diffusion_prompt}'")
             
             # Create SD server request
             request = ImageGenerationRequest(
-                prompt=prompt_spec.scene_prompt,
+                prompt=diffusion_prompt,
                 size=quality_config["size"],
                 steps=quality_config["steps"]
             )
@@ -196,7 +190,7 @@ class SceneImageService:
             
             # Create metadata for return
             metadata = {
-                "prompt": response.prompt_used,
+                "prompt": diffusion_prompt,
                 "size": response.size,
                 "steps": response.steps,
                 "quality": job.quality,

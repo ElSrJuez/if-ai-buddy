@@ -24,32 +24,27 @@
 
   "value_sources": {
     "room_name": {
-      "path": "current_scene.room_name",
-      "fallback": "Unknown Location"
+      "path": "current_scene.room_name"
     },
     "description": {
       "path": "current_scene.description_lines",
       "transform": "join_truncate",
-      "max_length": 200,
-      "fallback": ""
+      "max_length": 200
     },
     "visible_items": {
       "path": "current_scene.current_items", 
       "transform": "join_list",
-      "max_items": 3,
-      "fallback": ""
+      "max_items": 3
     },
     "playername": {
-      "path": "player_state.name"
+      "path": "player_name"
     },
     "entering_action": {
-      "path": "turn_hints.command",
-      "fallback": "arrived"
+      "path": "turn_hints.command"
     },
     "recent_events": {
       "path": "turn_hints.engine_excerpt",
-      "max_length": 100,
-      "fallback": ""
+      "max_length": 100
     }
   }
 }

@@ -76,8 +76,11 @@ class SceneImagePromptBuilder:
             if value is not None and "transform" in source_config:
                 value = self._apply_transform(value, source_config)
             
-            # Use value or required fallback from config
-            scene_context[key] = value if value is not None else source_config["fallback"]
+            # Respect Prime Directive #6: No fallbacks that conceal real failures
+            if value is None:
+                raise ValueError(f"Required scene context '{key}' not found at path '{path}' in memory context")
+            
+            scene_context[key] = value
         
         return scene_context
     
