@@ -1,5 +1,57 @@
 # Scene Image Generation Feature Specification
 
+## 🟢 IMPLEMENTATION STATUS
+
+**Last Updated**: January 1, 2026  
+**Status**: Phase 2 Complete - Core functionality working end-to-end  
+**Next Developer**: Ready for Phase 3 (UI Integration) and Phase 4 (Service Integration)
+
+### ✅ COMPLETED PHASES
+
+**Phase 1: Core Infrastructure (COMPLETE)**
+- ✅ SD-Server client with async HTTP and XML parameter embedding (`module/sd_server_client.py`)
+- ✅ Scene image cache system with multi-quality tracking (`module/scene_image_cache.py`) 
+- ✅ Configuration framework with environment variables (`config/scene_image_config.json`)
+- ✅ All components tested and working
+
+**Phase 2: LLM Prompt Generation (COMPLETE)**
+- ✅ SceneImagePromptBuilder with template-driven meta-prompt generation (`module/scene_image_prompt_builder.py`)
+- ✅ Full LLM integration using existing project infrastructure
+- ✅ End-to-end flow: Game context → Meta-prompt → LLM → SD diffusion prompt
+- ✅ Working test script demonstrates complete pipeline (`testing/test_scene_prompt_builder.py`)
+
+**Phase 2: UI Components (COMPLETE - NEEDS INTEGRATION)**
+- ✅ Scene image popup widget using Textual modal (`module/scene_image_popup.py`)
+- ✅ Three action buttons: thumbs-down, regenerate, hide
+- ✅ Non-modal interaction design
+- ❌ NOT YET: Integration with main UI application
+
+### 🟡 PENDING PHASES
+
+**Phase 3: Service Integration (IN PROGRESS)**
+- ✅ SceneImageService class created (`module/scene_image_service.py`) 
+- ❌ TODO: Update service to use new prompt builder with LLM calls
+- ❌ TODO: Complete cache-first workflow with proper error handling
+- ❌ TODO: Scene change detection and auto-trigger logic
+
+**Phase 4: Main Application Integration (NOT STARTED)**
+- ❌ TODO: Modify `module/ui_helper.py` to support popup overlay
+- ❌ TODO: Add scene image window state management  
+- ❌ TODO: Connect popup to main game controller
+- ❌ TODO: Keyboard shortcuts and commands
+
+**Phase 5: LLM Queue Integration (NOT STARTED)**
+- ❌ TODO: Modify `module/common_llm_layer.py` to include scene image jobs
+- ❌ TODO: Priority scheduling after narration/memory tasks
+- ❌ TODO: Maintain single AI task execution principle
+
+**Phase 6: Observability & Polish (NOT STARTED)**
+- ❌ TODO: Structured logging following project patterns
+- ❌ TODO: Cache hit/miss statistics and performance metrics
+- ❌ TODO: Integration testing and error handling refinement
+
+---
+
 ## Overview
 
 A pop-up AI-generated scene visualization feature that creates and displays visual representations of the current game scene. Scene images are generated asynchronously using LLM-crafted prompts sent to a remote image generation service, with caching, regeneration capabilities, and non-blocking integration with the main game loop.
@@ -89,7 +141,113 @@ This aligns with the project's `Scene` object in `module/game_memory.py` which t
    - Manual toggle trigger via hide button, keyboard shortcut or command using the existing mechanisms of the textual UX
    - Configurable auto-display settings
 
-## Implementation Plan
+## Implementation Details for Next Developer
+
+### Current Working Components
+
+**1. Scene Image Prompt Builder** (`module/scene_image_prompt_builder.py`)
+```python
+# Usage example:
+builder = SceneImagePromptBuilder(main_config)  # Needs main config for LLM settings
+prompt_spec = builder.build_meta_prompt(memory_context=game_memory)
+sd_prompt = await builder.generate_sd_prompt(memory_context=game_memory)
+```
+
+Key methods:
+- `build_meta_prompt()` - Creates LLM instruction from game context
+- `generate_sd_prompt()` - Calls LLM to get actual diffusion prompt
+- Uses project's existing LLM client infrastructure
+- Configuration-driven via `config/scene_image_prompt_template.json`
+
+**2. SD-Server Client** (`module/sd_server_client.py`)
+```python
+# Usage example:
+client = SDServerClient()
+request = ImageGenerationRequest(prompt=sd_prompt, size="256x256", steps=4)
+response = await client.generate_image(request)
+```
+
+Key features:
+- Async HTTP with timeout handling (320s default)
+- XML parameter embedding for advanced settings
+- Structured error handling for network/API failures
+- Base64 image data handling
+
+**3. Scene Image Cache** (`module/scene_image_cache.py`)
+```python
+# Usage example:
+cache = SceneImageCache()
+cache.store_image(room_name, response, quality)  # Stores both image and metadata
+image_data, metadata = cache.load_image(room_name, quality)
+```
+
+Key features:
+- Multi-quality tracking per room in single JSON metadata file
+- Quality-specific PNG files: `room_name_quality.png`
+- Metadata format: `{"room_name": "...", "qualities": {"medium": {...}, "high": {...}}}`
+- Only replaces specific quality on regeneration
+
+**4. Scene Image Popup** (`module/scene_image_popup.py`)
+```python
+# Usage example (needs UI integration):
+popup = SceneImagePopup(
+    room_name="West of House",
+    image_data=image_bytes,
+    prompt_text="detailed pencil art...",
+    on_regenerate=callback_function
+)
+```
+
+Key features:
+- Textual ModalScreen component
+- Three action buttons with configurable callbacks
+- Image display (currently shows metadata, not actual image)
+- Non-modal interaction design
+
+### Critical Integration Points
+
+**1. Service Layer Update Needed** (`module/scene_image_service.py`)
+Current service has placeholder TODO for LLM integration. Need to:
+```python
+# Replace this TODO in _generate_new_image():
+# TODO: Call LLM with prompt_spec.meta_prompt to get diffusion prompt
+diffusion_prompt = await self._prompt_builder.generate_sd_prompt(memory_context=job.memory_context)
+```
+
+**2. Main UI Integration** (`module/ui_helper.py`)
+The popup widget exists but isn't connected to the main Textual app. Need to:
+- Add popup state management to `IFBuddyTUI` class
+- Handle popup show/hide via controller
+- Add keyboard shortcuts for scene image commands
+
+**3. Configuration Requirements**
+- Main config must contain LLM provider settings for prompt generation
+- Scene image config contains SD-server and quality settings
+- Environment variables: `SD_SERVER_BASE_URL` for remote server
+
+### Testing
+
+**Current Test** (`testing/test_scene_prompt_builder.py`)
+- Validates complete prompt generation pipeline
+- Shows meta-prompt and final SD prompt
+- Requires LLM server running (shows: "🟢 Service is Started on http://127.0.0.1:56338/")
+
+**Additional Tests Needed**
+- End-to-end service test with image generation
+- Cache system stress testing
+- UI popup integration testing
+
+### Known Issues & Gotchas
+
+1. **No Fallbacks**: Code follows Prime Directive #6 - fails cleanly if configuration missing
+2. **Sync vs Async**: LLM client is synchronous, SD client is async
+3. **Quality Parameters**: Quality affects SD generation (steps/size), not prompts
+4. **Cache Structure**: Migrates old single-quality format to new multi-quality automatically
+
+---
+
+## Original Specification
+
 
 ### Phase 1: Core Infrastructure
 
