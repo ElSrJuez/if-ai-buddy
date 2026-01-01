@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from module import my_config, my_logging
+from module import config_registry
+from module.llm_factory_FoundryLocal import create_llm_client
 
 
 @dataclass(slots=True)
@@ -24,9 +26,13 @@ class SceneImagePromptBuilder:
         """Initialize with scene image configuration."""
         self.config = config
         self._prompt_template = my_config.load_scene_image_prompt_template()
-        self.system_prompt = self._prompt_template.get("system_prompt", "")
-        self.max_prompt_length = self._prompt_template.get("max_prompt_length", 120)
-        self.style_prefix = self._prompt_template.get("style_prefix", "detailed pencil art illustration of")
+        self.system_prompt = self._prompt_template["system_prompt"]
+        self.max_prompt_length = self._prompt_template["max_prompt_length"]
+        self.style_prefix = self._prompt_template["style_prefix"]
+        
+        # Initialize LLM client using existing infrastructure
+        self.llm_settings = config_registry.resolve_llm_settings(config)
+        self.llm_client = create_llm_client(config)
         
         my_logging.system_info(f"SceneImagePromptBuilder initialized (max_length={self.max_prompt_length})")
 
@@ -58,26 +64,20 @@ class SceneImagePromptBuilder:
     
     def _extract_scene_context(self, memory_context: dict[str, Any]) -> dict[str, Any]:
         """Extract relevant scene information from game memory context."""
-        value_sources = self._prompt_template.get("value_sources", {})
+        value_sources = self._prompt_template["value_sources"]
         scene_context = {}
         
         for key, source_config in value_sources.items():
-            try:
-                # Navigate path in memory context (e.g., "current_scene.room_name")
-                path = source_config["path"]
-                value = self._navigate_context_path(memory_context, path)
-                
-                # Apply transformations if specified
-                if value is not None and "transform" in source_config:
-                    value = self._apply_transform(value, source_config)
-                
-                # Use value or fallback
-                scene_context[key] = value if value is not None else source_config.get("fallback", "")
-                
-            except (KeyError, TypeError, AttributeError) as exc:
-                fallback = source_config.get("fallback", "")
-                scene_context[key] = fallback
-                my_logging.system_debug(f"Scene context extraction failed for '{key}': {exc}, using fallback: '{fallback}'")
+            # Navigate path in memory context (e.g., "current_scene.room_name")
+            path = source_config["path"]
+            value = self._navigate_context_path(memory_context, path)
+            
+            # Apply transformations if specified
+            if value is not None and "transform" in source_config:
+                value = self._apply_transform(value, source_config)
+            
+            # Use value or required fallback from config
+            scene_context[key] = value if value is not None else source_config["fallback"]
         
         return scene_context
     
@@ -118,19 +118,50 @@ class SceneImagePromptBuilder:
     
     def _format_meta_prompt_template(self, scene_context: dict[str, Any]) -> str:
         """Format the meta-prompt template with scene context."""
-        template = self._prompt_template.get("scene_template", "")
-        
-        if not template:
-            raise ValueError("No scene_template configured in prompt template")
+        template = self._prompt_template["scene_template"]
         
         # Add template variables like style_prefix to context
         expanded_context = scene_context.copy()
         expanded_context["style_prefix"] = self.style_prefix
         expanded_context["max_prompt_length"] = self.max_prompt_length
         
+        # Format template with scene context - fail if template broken
+        return template.format(**expanded_context)
+    
+    async def generate_sd_prompt(
+        self,
+        *,
+        memory_context: dict[str, Any]
+    ) -> str:
+        """Generate SD diffusion prompt by calling LLM with meta-prompt."""
+        
+        # Build meta-prompt for LLM
+        prompt_spec = self.build_meta_prompt(memory_context=memory_context)
+        
+        # Prepare LLM messages following project patterns
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt_spec.meta_prompt}
+        ]
+        
+        my_logging.system_info(f"Calling LLM for SD prompt generation: {prompt_spec.metadata['room_name']}")
+        
         try:
-            # Format template with scene context
-            return template.format(**expanded_context)
-        except KeyError as exc:
-            # If template formatting fails, let it fail - no fallbacks
-            raise ValueError(f"Template formatting failed - missing variable: {exc}") from exc
+            # Use existing LLM infrastructure (synchronous call)
+            response = self.llm_client.chat(
+                messages=messages,
+                model=self.llm_settings.alias,
+                temperature=0.7,
+                max_tokens=150  # Keep it short for SD prompts
+            )
+            
+            # Extract SD prompt from LLM response
+            sd_prompt = response.choices[0].message.content.strip()
+            
+            my_logging.system_info(f"LLM generated SD prompt ({len(sd_prompt)} chars): {sd_prompt}")
+            return sd_prompt
+            
+        except Exception as exc:
+            # Respect Prime Directive #6: No fallbacks that conceal real failures
+            my_logging.system_log(f"LLM call failed for SD prompt generation: {exc}")
+            raise RuntimeError(f"Failed to generate SD prompt: {exc}") from exc
