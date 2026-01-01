@@ -1,0 +1,228 @@
+"""Scene image service for managing image generation workflow."""
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from typing import Any, Optional
+
+from module import my_config, my_logging
+from module.scene_image_cache import SceneImageCache
+from module.scene_image_prompt_builder import SceneImagePromptBuilder, SceneImagePromptSpec
+from module.sd_server_client import SDServerClient, ImageGenerationRequest, ImageGenerationResponse
+
+
+@dataclass(slots=True)
+class SceneImageJob:
+    """Scene image generation job specification."""
+    
+    room_name: str
+    quality: str
+    memory_context: dict[str, Any]
+    force_regenerate: bool = False
+    
+    def __str__(self) -> str:
+        regen_flag = " (regen)" if self.force_regenerate else ""
+        return f"SceneImageJob({self.room_name}, {self.quality}{regen_flag})"
+
+
+class SceneImageService:
+    """Orchestrates scene image generation workflow with cache-first approach."""
+    
+    def __init__(self) -> None:
+        """Initialize service with configuration and dependencies."""
+        self._config = my_config.load_scene_image_config()
+        self._cache = SceneImageCache()
+        self._prompt_builder = SceneImagePromptBuilder(self._config)
+        self._sd_client = SDServerClient()
+        self._enabled = self._config.get("enable_scene_images", True)
+        
+        # Current state tracking
+        self._current_room: Optional[str] = None
+        self._generation_in_progress: Optional[SceneImageJob] = None
+        
+        my_logging.system_info(f"SceneImageService initialized (enabled={self._enabled})")
+    
+    def is_enabled(self) -> bool:
+        """Check if scene image generation is enabled."""
+        return self._enabled
+    
+    def is_generation_in_progress(self) -> bool:
+        """Check if image generation is currently in progress."""
+        return self._generation_in_progress is not None
+    
+    def should_auto_generate(self, room_name: str) -> bool:
+        """Determine if scene should auto-generate image on entry."""
+        if not self._enabled:
+            return False
+        
+        # Check if this is a new scene entry
+        if self._current_room == room_name:
+            return False  # Same room, no auto-generation
+        
+        # Check if auto-display is enabled
+        auto_display = self._config.get("auto_display_on_new_scene", True)
+        if not auto_display:
+            return False
+        
+        # Check if we have cached image for default quality
+        default_quality = self._config.get("default_quality", "medium")
+        return not self._cache.is_cached(room_name, default_quality)
+    
+    def update_current_room(self, room_name: str) -> None:
+        """Update current room tracking for scene change detection."""
+        self._current_room = room_name
+        my_logging.system_debug(f"Scene service tracking room: {room_name}")
+    
+    async def generate_scene_image(
+        self,
+        *,
+        room_name: str,
+        memory_context: dict[str, Any],
+        quality: Optional[str] = None,
+        force_regenerate: bool = False
+    ) -> tuple[bytes, dict[str, Any]]:
+        """Generate scene image with cache-first approach.
+        
+        Returns:
+            Tuple of (image_data, metadata_dict)
+        """
+        if not self._enabled:
+            raise RuntimeError("Scene image generation is disabled")
+        
+        target_quality = quality or self._config.get("default_quality", "medium")
+        
+        # Create job specification
+        job = SceneImageJob(
+            room_name=room_name,
+            quality=target_quality,
+            memory_context=memory_context,
+            force_regenerate=force_regenerate
+        )
+        
+        my_logging.system_info(f"Scene image generation requested: {job}")
+        
+        # Check cache first (unless forced regeneration)
+        if not force_regenerate and self._cache.is_cached(room_name, target_quality):
+            my_logging.system_info(f"Scene image cache hit: {room_name} ({target_quality})")
+            image_data, metadata = self._cache.load_image(room_name, target_quality)
+            return image_data, metadata.to_dict()
+        
+        # Generate new image
+        return await self._generate_new_image(job)
+    
+    async def regenerate_scene_image(
+        self,
+        *,
+        room_name: str,
+        memory_context: dict[str, Any],
+        quality: Optional[str] = None
+    ) -> tuple[bytes, dict[str, Any]]:
+        """Force regeneration of scene image (bypasses cache)."""
+        regen_quality = quality or self._config.get("regen_quality", "high")
+        return await self.generate_scene_image(
+            room_name=room_name,
+            memory_context=memory_context,
+            quality=regen_quality,
+            force_regenerate=True
+        )
+    
+    def get_cached_image(
+        self,
+        room_name: str,
+        quality: Optional[str] = None
+    ) -> Optional[tuple[bytes, dict[str, Any]]]:
+        """Get cached image if available, otherwise None."""
+        target_quality = quality or self._config.get("default_quality", "medium")
+        
+        if self._cache.is_cached(room_name, target_quality):
+            try:
+                image_data, metadata = self._cache.load_image(room_name, target_quality)
+                return image_data, metadata.to_dict()
+            except FileNotFoundError:
+                return None
+        
+        return None
+    
+    def get_available_qualities(self, room_name: str) -> list[str]:
+        """Get list of available cached quality levels for a room."""
+        return self._cache.get_available_qualities(room_name)
+    
+    def get_placeholder_image(self) -> Optional[bytes]:
+        """Get placeholder image data if configured."""
+        placeholder_path = self._config.get("placeholder_image_path")
+        if placeholder_path:
+            try:
+                from pathlib import Path
+                path = Path(placeholder_path)
+                if path.exists():
+                    return path.read_bytes()
+            except Exception as exc:
+                my_logging.system_warn(f"Failed to load placeholder image: {exc}")
+        
+        return None
+    
+    async def _generate_new_image(self, job: SceneImageJob) -> tuple[bytes, dict[str, Any]]:
+        """Generate new scene image (internal implementation)."""
+        self._generation_in_progress = job
+        
+        try:
+            # Build meta-prompt from memory context (for LLM)
+            prompt_spec = self._prompt_builder.build_meta_prompt(
+                memory_context=job.memory_context
+            )
+            
+            my_logging.system_info(f"Generated meta-prompt for {job.room_name}: {len(prompt_spec.meta_prompt)} chars")
+            
+            # TODO: Call LLM with prompt_spec.meta_prompt to get diffusion prompt
+            # For now, raise NotImplementedError until LLM integration
+            raise NotImplementedError("LLM integration for scene image generation not yet implemented")
+            
+            # Get quality configuration
+            quality_config = self._config["quality_presets"][job.quality]
+            
+            # Create SD server request
+            request = ImageGenerationRequest(
+                prompt=prompt_spec.scene_prompt,
+                size=quality_config["size"],
+                steps=quality_config["steps"]
+            )
+            
+            # Generate image via SD server
+            my_logging.system_info(f"Generating scene image: {job.room_name} ({job.quality})")
+            response = await self._sd_client.generate_image(request)
+            
+            # Store in cache
+            self._cache.store_image(job.room_name, response, job.quality)
+            
+            # Create metadata for return
+            metadata = {
+                "prompt": response.prompt_used,
+                "size": response.size,
+                "steps": response.steps,
+                "quality": job.quality,
+                "created": response.created,
+                "room_name": job.room_name
+            }
+            
+            my_logging.system_info(f"Scene image generated: {job.room_name} ({len(response.image_data)} bytes)")
+            return response.image_data, metadata
+            
+        finally:
+            self._generation_in_progress = None
+    
+    def get_service_status(self) -> dict[str, Any]:
+        """Get current service status and statistics."""
+        cache_stats = self._cache.get_cache_stats()
+        
+        return {
+            "enabled": self._enabled,
+            "current_room": self._current_room,
+            "generation_in_progress": str(self._generation_in_progress) if self._generation_in_progress else None,
+            "cache_stats": cache_stats,
+            "config": {
+                "default_quality": self._config.get("default_quality"),
+                "regen_quality": self._config.get("regen_quality"),
+                "auto_display": self._config.get("auto_display_on_new_scene"),
+                "available_qualities": list(self._config.get("quality_presets", {}).keys())
+            }
+        }
