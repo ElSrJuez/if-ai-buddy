@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,51 @@ from module.ui_helper import (
     IFBuddyApp,
     StatusSnapshot,
 )
+
+
+class AITask(ABC):
+    """Abstract base class for all AI tasks."""
+    
+    @abstractmethod
+    async def execute(self) -> None:
+        """Execute the AI task."""
+        pass
+    
+    @abstractmethod
+    def get_status_type(self) -> str:
+        """Return status type: 'ai', 'sd_prompt', or 'sd'"""
+        pass
+
+
+class NarrationTask(AITask):
+    """AI task for generating narration text."""
+    
+    def __init__(self, controller: 'GameController', job_spec: NarrationJobSpec, room: str):
+        self.controller = controller
+        self.job_spec = job_spec
+        self.room = room
+    
+    async def execute(self) -> None:
+        """Execute narration generation."""
+        await self.controller._run_narration_job(self.job_spec, self.room)
+    
+    def get_status_type(self) -> str:
+        return "ai"
+
+
+class SceneImageTask(AITask):
+    """AI task for generating scene images."""
+    
+    def __init__(self, controller: 'GameController', memory_context: dict[str, Any]):
+        self.controller = controller
+        self.memory_context = memory_context
+    
+    async def execute(self) -> None:
+        """Execute scene image generation."""
+        await self.controller._generate_and_show_scene_image(self.memory_context)
+    
+    def get_status_type(self) -> str:
+        return "sd"
 
 
 @dataclass(frozen=True)
@@ -118,12 +164,15 @@ class GameController:
         self._completions = CompletionsHelper(self.config, schema)
         self._narration_builder = NarrationJobBuilder(self.config)
         self._narration_tasks: set[asyncio.Task[Any]] = set()
-        self._active_narration_jobs = 0
+        
+        # AI task queue system
+        self._ai_queue: asyncio.Queue[AITask] = asyncio.Queue()
+        self._ai_worker_task: asyncio.Task[None] | None = None
+        self._current_ai_status: str | None = None
 
         # Initialize scene image service
         self._scene_image_service = SceneImageService(self.config)
         self._current_room_for_images: str | None = None
-        self._schedule_deferred_scene_image = False
 
         # Status tracking
         self._moves = 0
@@ -164,6 +213,10 @@ class GameController:
 
     def _cleanup(self) -> None:
         """Clean up resources."""
+        # Cancel AI worker
+        if self._ai_worker_task and not self._ai_worker_task.done():
+            self._ai_worker_task.cancel()
+        
         # Async cleanup is handled by game_api context managers
         # No need for asyncio.run() here since the event loop is already shutting down
         if self._game_api:
@@ -207,6 +260,9 @@ class GameController:
                 label=self._player_name,
             )
             session = await self._game_api.start()
+            
+            # Start AI worker
+            self._ai_worker_task = asyncio.create_task(self._ai_worker())
             
             # Log the initial game intro as a transcript event (transaction zero)
             my_logging.log_player_output(session.intro_text)
@@ -258,6 +314,64 @@ class GameController:
             my_logging.system_debug(f"Async init error: {exc}")
             self._app.add_transcript_output(f"Error initializing: {exc}")
             self._set_engine_status(EngineStatus.ERROR)
+
+    async def _ai_worker(self) -> None:
+        """Single AI worker coroutine that processes all AI tasks sequentially."""
+        my_logging.system_debug("AI worker started")
+        
+        try:
+            while True:
+                try:
+                    # Get next task from queue
+                    task = await self._ai_queue.get()
+                    
+                    # Update status based on task type
+                    status_type = task.get_status_type()
+                    self._current_ai_status = status_type
+                    
+                    if status_type == "ai":
+                        self._set_ai_status(AIStatus.WORKING)
+                    elif status_type == "sd_prompt":
+                        self._set_sd_prompt_status(SDPromptStatus.WORKING)
+                    elif status_type == "sd":
+                        self._set_sd_status(SDStatus.GENERATING)
+                    
+                    # Execute the task
+                    await task.execute()
+                    
+                    # Reset status to idle
+                    if status_type == "ai":
+                        self._set_ai_status(AIStatus.IDLE)
+                    elif status_type == "sd_prompt":
+                        self._set_sd_prompt_status(SDPromptStatus.IDLE)
+                    elif status_type == "sd":
+                        self._set_sd_status(SDStatus.IDLE)
+                    
+                    # Mark task as done
+                    self._ai_queue.task_done()
+                    self._current_ai_status = None
+                    
+                except asyncio.CancelledError:
+                    my_logging.system_debug("AI worker cancelled")
+                    break
+                except Exception as exc:
+                    # Reset status on error
+                    if self._current_ai_status == "ai":
+                        self._set_ai_status(AIStatus.ERROR)
+                    elif self._current_ai_status == "sd_prompt":
+                        self._set_sd_prompt_status(SDPromptStatus.ERROR)
+                    elif self._current_ai_status == "sd":
+                        self._set_sd_status(SDStatus.ERROR)
+                    
+                    my_logging.system_warn(f"AI worker task error: {exc}")
+                    # Mark task as done even on error
+                    self._ai_queue.task_done()
+                    self._current_ai_status = None
+                    
+        except asyncio.CancelledError:
+            my_logging.system_debug("AI worker shutdown")
+        except Exception as exc:
+            my_logging.system_warn(f"AI worker error: {exc}")
 
     def _handle_command(self, command: str) -> None:
         """Handle a player command."""
@@ -487,34 +601,28 @@ class GameController:
         self._active_narration_jobs = 0
 
     def _schedule_scene_image_generation(self) -> None:
-        """Trigger scene image generation after AI work is complete."""
-        # Check if AI is already busy with narration
-        if self._active_narration_jobs > 0:
-            # Queue scene image generation to run after narration completes
-            my_logging.system_debug("Scene image generation deferred - AI busy with narration")
-            self._schedule_deferred_scene_image = True
-            return
-            
-        # AI is free, proceed with scene image generation
+        """Submit scene image generation task to AI queue."""
         memory_context = self._memory.get_context_for_prompt()
+        task = SceneImageTask(self, memory_context)
         
-        # Schedule image generation as background task
-        task = asyncio.create_task(self._generate_and_show_scene_image(memory_context))
-        task.add_done_callback(self._on_scene_image_done)
+        # Submit to queue (will run sequentially after any pending AI tasks)
+        try:
+            self._ai_queue.put_nowait(task)
+            my_logging.system_debug("Scene image generation task queued")
+        except asyncio.QueueFull:
+            my_logging.system_warn("AI task queue is full, skipping scene image generation")
 
     async def _generate_and_show_scene_image(self, memory_context: dict[str, Any]) -> None:
         """Generate scene image and display in popup."""
         try:
-            self._set_sd_status(SDStatus.GENERATING)
             # Set up callbacks for SD prompt generation phases
             self._scene_image_service._on_sd_prompt_start = lambda: self._set_sd_prompt_status(SDPromptStatus.WORKING)
-            self._scene_image_service._on_sd_prompt_end = lambda: self._set_sd_prompt_status(SDPromptStatus.READY)
+            self._scene_image_service._on_sd_prompt_end = lambda: self._set_sd_prompt_status(SDPromptStatus.IDLE)
             
             result = await self._scene_image_service.generate_scene_image(
                 room_name=self._room,
                 memory_context=memory_context
             )
-            self._set_sd_status(SDStatus.READY)
             
             # result is (image_data, metadata_dict)
             image_data, metadata = result
@@ -526,7 +634,6 @@ class GameController:
             )
             
         except Exception as exc:
-            self._set_sd_status(SDStatus.ERROR)
             my_logging.system_warn(f"Scene image generation failed: {exc}")
             # Show popup with no image but with regenerate option
             self._app.show_scene_image(
@@ -535,22 +642,8 @@ class GameController:
                 on_thumbs_down=self._on_image_thumbs_down,
                 on_regenerate=self._on_image_regenerate
             )
-
-    def _on_scene_image_done(self, task: asyncio.Task[None]) -> None:
-        """Handle completion of scene image generation task."""
-        if task.cancelled():
-            self._set_sd_status(SDStatus.IDLE)
-            return
-        
-        exception = task.exception()
-        if exception:
-            self._set_sd_status(SDStatus.ERROR)
-            my_logging.system_warn(f"Scene image generation task failed: {exception}")
-        # Note: Success case sets status within _generate_and_show_scene_image
-        if exception:
-            self._set_sd_status(SDStatus.ERROR)
-            my_logging.system_warn(f"Scene image generation task failed: {exception}")
-        # Note: Success case sets status within _generate_and_show_scene_image
+            # Re-raise exception so AI worker can handle status
+            raise
 
     def _on_image_thumbs_down(self) -> None:
         """Handle thumbs down feedback on scene image."""
@@ -567,14 +660,15 @@ class GameController:
         job_spec: NarrationJobSpec,
         room_snapshot: str,
     ) -> None:
-        """Enqueue a narration job without blocking the main turn loop."""
-        self._active_narration_jobs += 1
-        self._set_ai_status(AIStatus.WORKING)
-        task = asyncio.create_task(
-            self._run_narration_job(job_spec, room_snapshot)
-        )
-        task.add_done_callback(self._on_narration_done)
-        self._narration_tasks.add(task)
+        """Submit narration task to AI queue."""
+        task = NarrationTask(self, job_spec, room_snapshot)
+        
+        # Submit to queue (will run sequentially)
+        try:
+            self._ai_queue.put_nowait(task)
+            my_logging.system_debug("Narration task queued")
+        except asyncio.QueueFull:
+            my_logging.system_warn("AI task queue is full, skipping narration")
 
     async def _run_narration_job(
         self,
@@ -592,34 +686,6 @@ class GameController:
         if narration:
             self._memory.append_narration(room_snapshot, narration)
         return result
-
-    def _on_narration_done(self, task: asyncio.Task[Any]) -> None:
-        self._narration_tasks.discard(task)
-        if task.cancelled():
-            self._active_narration_jobs = max(0, self._active_narration_jobs - 1)
-            if self._active_narration_jobs == 0:
-                self._set_ai_status(AIStatus.READY)
-                
-                # Process deferred scene image generation if queued
-                if self._schedule_deferred_scene_image:
-                    self._schedule_deferred_scene_image = False
-                    my_logging.system_debug("Processing deferred scene image generation after narration cancel")
-                    self._schedule_scene_image_generation()
-            return
-
-        exception = task.exception()
-        if exception:
-            my_logging.system_warn(f"Narration job failed: {exception}")
-            self._app.add_hint("Narration failed; check logs for details.")
-        self._active_narration_jobs = max(0, self._active_narration_jobs - 1)
-        if self._active_narration_jobs == 0:
-            self._set_ai_status(AIStatus.READY)
-            
-            # Process deferred scene image generation if queued
-            if self._schedule_deferred_scene_image:
-                self._schedule_deferred_scene_image = False
-                my_logging.system_debug("Processing deferred scene image generation")
-                self._schedule_scene_image_generation()
 
     # ------------------------------------------------------------------
     # Status helpers

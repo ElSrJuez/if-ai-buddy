@@ -1,0 +1,11 @@
+{
+  "room_name": "West of House",
+  "qualities": {
+    "medium": {
+      "prompt": "Prompt: \"Fantasy art of Adventurer west of a white house, small mailbox, field, boarded door, recent events visible\"",
+      "size": "256x256",
+      "steps": 4,
+      "created": "2026-01-01T22:30:31Z"
+    }
+  }
+}
