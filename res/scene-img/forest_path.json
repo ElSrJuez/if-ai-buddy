@@ -1,0 +1,11 @@
+{
+  "room_name": "Forest Path",
+  "qualities": {
+    "medium": {
+      "prompt": "\"Illustrate a pencil sketch of an adventurer stepping onto a north-south forest path under a dense canopy, with a towering tree with low branches at the edge. Capture the essence of the dimly lit, mysterious atmosphere.\"",
+      "size": "256x256",
+      "steps": 4,
+      "created": "2026-01-02T16:27:31Z"
+    }
+  }
+}

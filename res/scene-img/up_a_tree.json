@@ -1,0 +1,11 @@
+{
+  "room_name": "Up a Tree",
+  "qualities": {
+    "medium": {
+      "prompt": "\"Sketch an adventurer perched 10 feet up a sturdy branch, bird's nest cradling a hatchling below. Sunlight filters through leaves, casting dappled shadows. Climber's determined gaze, reaching for the untouched branch above.\"\n\n\n{max_prompt_length: 200}",
+      "size": "256x256",
+      "steps": 20,
+      "created": "2026-01-02T16:32:28Z"
+    }
+  }
+}

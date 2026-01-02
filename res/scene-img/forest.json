@@ -1,0 +1,11 @@
+{
+  "room_name": "Forest",
+  "qualities": {
+    "medium": {
+      "prompt": "\"Illustrate a pencil art of an adventurer stepping into a sunlit forest from the west, surrounded by towering trees, with the east bathed in light.\"\n\n{characters: \"adventurer\", action: \"entering\", direction: \"west\", setting: \"forest\", light source: \"east sunlight\"}\n\n{scene: \"sunlit forest entrance\", elements: [\"adventurer\", \"towering trees\", \"east sunlight\"], mood: \"mysterious and inviting\"}\n\n{prompt: \"Create a pencil sketch of an adventurer at the edge of a sunlit forest, with dense trees on all sides, feeling",
+      "size": "256x256",
+      "steps": 4,
+      "created": "2026-01-02T16:04:27Z"
+    }
+  }
+}
