@@ -6,6 +6,12 @@
       "size": "256x256",
       "steps": 20,
       "created": "2026-01-02T17:20:47Z"
+    },
+    "high": {
+      "prompt": "\"Sketch a north-facing view of a white house with boarded-up windows, a narrow path through trees beyond, and an adventurer'thy entrance from the south, capturing recent events in the scene.\"\n\n{max_prompt_length: 100}",
+      "size": "512x512",
+      "steps": 20,
+      "created": "2026-01-02T17:34:27Z"
     }
   }
 }

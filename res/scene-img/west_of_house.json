@@ -2,10 +2,16 @@
   "room_name": "West of House",
   "qualities": {
     "medium": {
-      "prompt": "Prompt: \"Fantasy art of Adventurer west of a white house, small mailbox, field, boarded door, recent events visible\"",
+      "prompt": "\"Draw a monochrome pencil sketch of an Adventurer standing before a boarded door to a house, with a small mailbox west of the house. Capture the essence of a fantasy setting from Zork I, emphasizing the blocked entrance and hinting at untold stories within.\"",
       "size": "256x256",
-      "steps": 4,
-      "created": "2026-01-01T22:30:31Z"
+      "steps": 20,
+      "created": "2026-01-02T17:29:46Z"
+    },
+    "high": {
+      "prompt": "\"Draw a monochrome pencil sketch of an Adventurer standing before a boarded door to a house, with a small mailbox west of the house. Capture the essence of a fantasy setting from Zork I, emphasizing the blocked entrance and hinting at untold stories within.\"",
+      "size": "512x512",
+      "steps": 25,
+      "created": "2026-01-02T17:45:07Z"
     }
   }
 }

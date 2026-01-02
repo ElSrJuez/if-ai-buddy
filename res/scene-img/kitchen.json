@@ -1,0 +1,11 @@
+{
+  "room_name": "Kitchen",
+  "qualities": {
+    "medium": {
+      "prompt": "\"White House kitchen: recent food prep, west passage, dark staircase. Adventurer enters, current actions visible.\"\n\n{max_prompt_length} characters: 53\n\n(Note: The character limit here is not specified, but the provided prompt is under 53 characters, assuming a character limit of 50 or more.)",
+      "size": "256x256",
+      "steps": 20,
+      "created": "2026-01-02T17:36:56Z"
+    }
+  }
+}

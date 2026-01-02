@@ -7,9 +7,9 @@
     "Style: Consistent pencil art illustration aesthetic for text adventure scenes."
   ],
 
-  "system_prompt": "You are a concise prompt generator for an interactive text adventure. Create brief, effective AI diffusion prompts that captures the essence of the current fiction scene effectively highlights the most relevant elements from the provided facts. Focus provided room descriptions, items, player actions, events. Your generated prompt must smartly conduce to text-less images without relying on negative prompting. Always stay under {max_prompt_length} characters total so use your token budget wisely.",
+  "system_prompt": "You are a concise prompt generator for an interactive text adventure. Create brief, effective AI diffusion prompts that strictly follows these guidelines and content elements while capturing the essence of the current fiction scene effectively highlights the most relevant elements from the provided facts. Focus provided room descriptions, items, player actions, events. Your generated prompt must smartly conduce to text-less images without relying on negative prompting. Always stay under {max_prompt_length} characters total so use your token budget wisely.",
 
-  "scene_template": "Create an effective AI diffusion prompt that will generate a {style_prefix} of a fiction scene with description elements {room_name}: {description}; visible items {visible_items}; where {playername} entered the scene by {entering_action} and the most recent events were {recent_events}.",
+  "scene_template": "Create an effective AI diffusion prompt that will generate a {style_prefix} of a fiction scene that shows the following elements {room_name}: {description}; visible items {visible_items}; where player {playername} is displayed entering the scene by {entering_action} and depicting the most recent events that were: {recent_events}.",
 
   "context_sections": [
     "room_name",
@@ -19,7 +19,7 @@
     "recent_events"
   ],
 
-  "style_prefix": "detailed pencil art illustration",
+  "style_prefix": "*beautifully detailed monochrome pencil line art *",
   "max_prompt_length": 120,
 
   "value_sources": {

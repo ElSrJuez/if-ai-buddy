@@ -126,6 +126,61 @@ class SceneImageService:
             quality=regen_quality,
             force_regenerate=True
         )
+
+    async def regenerate_image_from_cached_prompt(
+        self,
+        *,
+        room_name: str,
+        quality: Optional[str] = None
+    ) -> tuple[bytes, dict[str, Any]]:
+        """Regenerate image using existing cached prompt without changing it.
+
+        Uses regen quality from config unless explicitly provided.
+        """
+        target_quality = quality or self._config.get("regen_quality", "high")
+        
+        # Load cached prompt from any available quality (prefer default)
+        default_quality = self._config.get("default_quality", "medium")
+        prompt_source_quality = default_quality if self._cache.is_cached(room_name, default_quality) else None
+        if prompt_source_quality is None:
+            # Try any available quality
+            qualities = self._cache.get_available_qualities(room_name)
+            if not qualities:
+                raise FileNotFoundError(f"No cached image available for room '{room_name}' to reuse prompt")
+            prompt_source_quality = qualities[0]
+        
+        # Load metadata and reuse prompt
+        _, metadata_obj = self._cache.load_image(room_name, prompt_source_quality)
+        diffusion_prompt = metadata_obj.prompt
+        
+        # Build request using target regen quality
+        quality_presets = self._config.get("quality_presets", {})
+        if target_quality not in quality_presets:
+            available_qualities = list(quality_presets.keys())
+            raise ValueError(f"Quality '{target_quality}' not found. Available: {available_qualities}")
+        quality_config = quality_presets[target_quality]
+        
+        request = ImageGenerationRequest(
+            prompt=diffusion_prompt,
+            size=quality_config["size"],
+            steps=quality_config["steps"]
+        )
+        
+        # Generate image and store
+        my_logging.system_info(f"Regenerating image from cached prompt: {room_name} ({target_quality})")
+        response = await self._sd_client.generate_image(request)
+        self._cache.store_image(room_name, response, target_quality)
+        
+        metadata = {
+            "prompt": diffusion_prompt,
+            "size": response.size,
+            "steps": response.steps,
+            "quality": target_quality,
+            "created": response.created,
+            "room_name": room_name,
+            "image_path": str(self._cache.get_image_path(room_name, target_quality))
+        }
+        return response.image_data, metadata
     
     def get_cached_image(
         self,

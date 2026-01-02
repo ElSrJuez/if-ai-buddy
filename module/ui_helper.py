@@ -18,6 +18,7 @@ from textual.widgets import (
     Input,
     RichLog,
     Static,
+    Button,
 )
 from textual.reactive import reactive
 from .scene_image_popup import SceneImagePopup
@@ -377,6 +378,8 @@ class IFBuddyTUI:
         on_player_rename: Callable[[], None],
         on_restart: Callable[[], None],
         on_show_scene_image: Callable[[], None],
+        on_thumbs_down_prompt: Callable[[], None] | None = None,
+        on_thumbs_down_image: Callable[[], None] | None = None,
     ) -> None:
         self._app = app
         # status snapshot initialization and updates are delegated to the controller
@@ -384,6 +387,8 @@ class IFBuddyTUI:
         self._on_player_rename = on_player_rename
         self._on_restart = on_restart
         self._on_show_scene_image = on_show_scene_image
+        self._on_thumbs_down_prompt = on_thumbs_down_prompt
+        self._on_thumbs_down_image = on_thumbs_down_image
 
         # External viewer process tracking (singleton)
         self._viewer_proc = None
@@ -491,11 +496,25 @@ class IFBuddyTUI:
 
             self._viewer_proc = subprocess.Popen(cmd)
             my_logging.system_info(f"Scene image viewer launched: room={current_room}")
+            
+            # Monitor the process asynchronously to handle thumbs-down actions
+            if hasattr(self, "_app") and self._app:
+                asyncio.create_task(self._monitor_viewer_exit(on_thumbs_down, on_regenerate))
+            
         except Exception as exc:
             my_logging.system_warn(f"Failed to launch scene image viewer: {exc}")
         finally:
             # No need to keep temp file object open; the viewer reads it by path.
             pass
+
+        # Also show in-app controls overlay with prompt and buttons
+        try:
+            if hasattr(self, "_app") and self._app:
+                # Provide prompt text and callbacks via app
+                if hasattr(self._app, "show_scene_controls"):
+                    self._app.show_scene_controls(prompt_text)
+        except Exception as exc:
+            my_logging.system_warn(f"Failed to show scene controls overlay: {exc}")
 
     def hide_scene_image(self) -> None:
         """Hide/close the scene image viewer if running and cleanup temp image."""
@@ -513,6 +532,33 @@ class IFBuddyTUI:
                 except Exception:
                     pass
                 self._viewer_temp_path = None
+
+    async def _monitor_viewer_exit(self, on_thumbs_down: Callable[[], None], on_regenerate: Callable[[], None]) -> None:
+        """Monitor the viewer subprocess and handle exit codes for thumbs-down actions."""
+        if not self._viewer_proc:
+            return
+        
+        try:
+            # Wait for process to exit
+            exit_code = await asyncio.create_task(
+                asyncio.get_event_loop().run_in_executor(None, self._viewer_proc.wait)
+            )
+            
+            my_logging.system_debug(f"Scene viewer exited with code: {exit_code}")
+            
+            # Handle exit codes
+            if exit_code == 1:  # Thumbs down prompt
+                my_logging.system_info("Viewer requested prompt regeneration")
+                on_thumbs_down()  # This is actually thumbs-down prompt
+            elif exit_code == 2:  # Thumbs down image  
+                my_logging.system_info("Viewer requested image regeneration")
+                on_regenerate()  # This is actually thumbs-down image
+            # exit_code == 0 is normal close, no action needed
+            
+        except Exception as exc:
+            my_logging.system_warn(f"Error monitoring viewer exit: {exc}")
+        finally:
+            self._viewer_proc = None
 
     # Engine status updates delegated to controller; remove duplication
 
@@ -536,6 +582,8 @@ class IFBuddyApp(App):
         ("q", "quit", "Quit"),
         ("i", "show_scene_image", "Show Scene Image"),
         ("h", "hide_scene_image", "Hide Scene Image"),
+        ("p", "thumbs_down_prompt", "👎 Prompt"),
+        ("r", "thumbs_down_image", "👎 Image"),
     ]
 
     CSS = """
@@ -563,11 +611,39 @@ class IFBuddyApp(App):
     Footer {
         height: auto;
     }
+
+    # Overlay controls styling
+    # Simple centered container with padding
+    # Uses $panel for background and $primary for borders
+    # Adjust as needed for theme integration
+    # SceneImageControls will apply this via classes
+    .scene-controls-overlay {
+        layer: overlay;
+        width: 60%;
+        height: auto;
+        border: solid $primary;
+        background: $panel;
+        padding: 1 2;
+        dock: top;
+        offset: 2 0;
+    }
+    .scene-controls-buttons {
+        layout: horizontal;
+        height: auto;
+        content-align: center middle;
+        padding: 1 0;
+    }
+    .scene-controls-prompt {
+        height: auto;
+        padding: 1 0;
+    }
     """
 
     def __init__(self, tui: IFBuddyTUI) -> None:
         super().__init__()
         self._tui = tui
+        self._scene_controls: Static | None = None
+        self._scene_prompt_text: str = ""
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -621,9 +697,90 @@ class IFBuddyApp(App):
         try:
             if hasattr(self._tui, "hide_scene_image"):
                 self._tui.hide_scene_image()
+            # Also hide controls overlay
+            self.dismiss_scene_controls()
         except Exception as exc:
             from module import my_logging
             my_logging.system_warn(f"Failed to hide scene image: {exc}")
+
+    async def action_thumbs_down_prompt(self) -> None:
+        """Trigger prompt thumbs-down: regenerate prompt then image."""
+        try:
+            cb = getattr(self._tui, "_on_thumbs_down_prompt", None)
+            if callable(cb):
+                cb()
+            self.dismiss_scene_controls()
+        except Exception as exc:
+            from module import my_logging
+            my_logging.system_warn(f"Failed to queue prompt thumbs-down: {exc}")
+
+    async def action_thumbs_down_image(self) -> None:
+        """Trigger image thumbs-down: regenerate image only."""
+        try:
+            cb = getattr(self._tui, "_on_thumbs_down_image", None)
+            if callable(cb):
+                cb()
+            self.dismiss_scene_controls()
+        except Exception as exc:
+            from module import my_logging
+            my_logging.system_warn(f"Failed to queue image thumbs-down: {exc}")
+
+    # -------- Scene Controls Overlay --------
+    def show_scene_controls(self, prompt_text: str) -> None:
+        """Show an overlay with prompt text and thumbs-down buttons."""
+        try:
+            from textual.containers import Vertical, Horizontal
+            overlay = Static(classes="scene-controls-overlay")
+            # Prompt display
+            prompt_display = Static(prompt_text or "", classes="scene-controls-prompt")
+            # Buttons row
+            buttons = Horizontal(classes="scene-controls-buttons")
+            btn_prompt = Button("👎 Prompt", id="btn_thumbs_prompt")
+            btn_image = Button("👎 Image", id="btn_thumbs_image")
+            btn_hide = Button("Hide", id="btn_hide_controls")
+            buttons.mount_all(btn_prompt, btn_image, btn_hide)
+            # Build overlay content
+            container = Vertical()
+            container.mount(prompt_display)
+            container.mount(buttons)
+            overlay.mount(container)
+
+            # If an existing overlay is present, remove it first
+            if self._scene_controls and not self._scene_controls.is_unmounted:
+                try:
+                    self._scene_controls.remove()
+                except Exception:
+                    pass
+
+            self._scene_controls = overlay
+            self._scene_prompt_text = prompt_text or ""
+            self.mount(overlay)
+        except Exception as exc:
+            from module import my_logging
+            my_logging.system_warn(f"Failed to show scene controls: {exc}")
+
+    def dismiss_scene_controls(self) -> None:
+        """Hide the scene controls overlay if visible."""
+        try:
+            if self._scene_controls and not self._scene_controls.is_unmounted:
+                self._scene_controls.remove()
+            self._scene_controls = None
+            self._scene_prompt_text = ""
+        except Exception:
+            pass
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle scene controls button presses."""
+        try:
+            if event.button.id == "btn_thumbs_prompt":
+                await self.action_thumbs_down_prompt()
+            elif event.button.id == "btn_thumbs_image":
+                await self.action_thumbs_down_image()
+            elif event.button.id == "btn_hide_controls":
+                self.dismiss_scene_controls()
+        except Exception as exc:
+            from module import my_logging
+            my_logging.system_warn(f"Scene controls handler error: {exc}")
 
 
 __all__ = [

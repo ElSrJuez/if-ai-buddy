@@ -20,6 +20,15 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 
 
+def _exit_with_code(root: tk.Tk, exit_code: int) -> None:
+    """Exit the viewer with a specific code to signal the action taken."""
+    try:
+        root.destroy()
+    except Exception:
+        pass
+    sys.exit(exit_code)
+
+
 def _build_ui(root: tk.Tk, *, room_name: str, image_path: Optional[str], prompt_text: str) -> None:
     root.title(f"Scene Image - {room_name}")
     root.geometry("600x500")
@@ -54,6 +63,14 @@ def _build_ui(root: tk.Tk, *, room_name: str, image_path: Optional[str], prompt_
 
     button_frame = ttk.Frame(main_frame)
     button_frame.grid(row=3, column=0, pady=(10, 0))
+
+    thumbs_prompt_btn = ttk.Button(button_frame, text="👎 Prompt", 
+                                   command=lambda: _exit_with_code(root, 1))
+    thumbs_prompt_btn.grid(row=0, column=0, padx=(0, 5))
+
+    thumbs_image_btn = ttk.Button(button_frame, text="👎 Image", 
+                                  command=lambda: _exit_with_code(root, 2))
+    thumbs_image_btn.grid(row=0, column=1, padx=(0, 5))
 
     hide_btn = ttk.Button(button_frame, text="❌ Hide", command=root.destroy)
     hide_btn.grid(row=0, column=2, padx=(5, 0))

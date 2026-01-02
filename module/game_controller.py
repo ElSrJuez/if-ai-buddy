@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from module import my_logging
+from module import my_logging, my_config
 from module.llm_narration_helper import CompletionsHelper
 from module.narration_job_builder import NarrationJobBuilder, NarrationJobSpec
 from module.game_api import GameAPI
@@ -77,6 +77,31 @@ class SceneImageTask(AITask):
         """Execute scene image generation."""
         await self.controller._generate_and_show_scene_image(self.memory_context)
     
+    def get_status_type(self) -> str:
+        return "sd"
+
+class SceneImagePromptRegenTask(AITask):
+    """AI task to regenerate prompt then image (force)."""
+
+    def __init__(self, controller: 'GameController', memory_context: dict[str, Any]):
+        self.controller = controller
+        self.memory_context = memory_context
+
+    async def execute(self) -> None:
+        await self.controller._regen_prompt_and_image(self.memory_context)
+
+    def get_status_type(self) -> str:
+        return "sd"
+
+class SceneImageImageOnlyRegenTask(AITask):
+    """AI task to regenerate image using cached prompt (regen quality)."""
+
+    def __init__(self, controller: 'GameController'):
+        self.controller = controller
+
+    async def execute(self) -> None:
+        await self.controller._regen_image_only_from_cached_prompt()
+
     def get_status_type(self) -> str:
         return "sd"
 
@@ -190,6 +215,8 @@ class GameController:
             on_player_rename=self._handle_player_rename,
             on_restart=self._handle_restart,
             on_show_scene_image=self._handle_show_scene_image,
+            on_thumbs_down_prompt=lambda: asyncio.create_task(self._schedule_thumbs_down_prompt()),
+            on_thumbs_down_image=lambda: asyncio.create_task(self._schedule_thumbs_down_image()),
         )
         self._textual_app = IFBuddyApp(self._app)
         self._app._app = self._textual_app
@@ -634,6 +661,25 @@ class GameController:
         except asyncio.QueueFull:
             my_logging.system_warn("AI task queue is full, skipping scene image generation")
 
+    async def _schedule_thumbs_down_prompt(self) -> None:
+        """Queue prompt regeneration then image generation."""
+        memory_context = self._memory.get_context_for_prompt()
+        task = SceneImagePromptRegenTask(self, memory_context)
+        try:
+            self._ai_queue.put_nowait(task)
+            my_logging.system_debug("Thumbs-down Prompt task queued")
+        except asyncio.QueueFull:
+            my_logging.system_warn("AI task queue full, skipping prompt regen")
+
+    async def _schedule_thumbs_down_image(self) -> None:
+        """Queue image-only regeneration using cached prompt."""
+        task = SceneImageImageOnlyRegenTask(self)
+        try:
+            self._ai_queue.put_nowait(task)
+            my_logging.system_debug("Thumbs-down Image task queued")
+        except asyncio.QueueFull:
+            my_logging.system_warn("AI task queue full, skipping image-only regen")
+
     async def _generate_and_show_scene_image(self, memory_context: dict[str, Any]) -> None:
         """Generate scene image (or load from cache) and display in popup."""
         try:
@@ -686,14 +732,14 @@ class GameController:
             raise
 
     def _on_image_thumbs_down(self) -> None:
-        """Handle thumbs down feedback on scene image."""
-        my_logging.system_info("User provided thumbs down feedback on scene image")
-        # TODO: Implement feedback collection/storage
+        """Thumbs-down Prompt: regenerate prompt then image (queued)."""
+        my_logging.system_info("Thumbs-down Prompt requested")
+        self._app.app.call_later(lambda: asyncio.create_task(self._schedule_thumbs_down_prompt()))
 
     def _on_image_regenerate(self) -> None:
-        """Handle regenerate request for scene image."""
-        my_logging.system_info("User requested scene image regeneration")
-        self._schedule_scene_image_generation()
+        """Thumbs-down Image: regenerate image only (queued)."""
+        my_logging.system_info("Thumbs-down Image requested")
+        self._app.app.call_later(lambda: asyncio.create_task(self._schedule_thumbs_down_image()))
 
     def _handle_show_scene_image(self) -> None:
         """Show cached scene image popup via UI (keyboard shortcut)."""
@@ -713,6 +759,47 @@ class GameController:
                 self._app.add_hint("No cached scene image available for this room.")
         except Exception as exc:
             my_logging.system_warn(f"Failed to show cached scene image: {exc}")
+
+    async def _regen_prompt_and_image(self, memory_context: dict[str, Any]) -> None:
+        """Regenerate prompt via LLM, then generate image (force)."""
+        try:
+            self._scene_image_service._on_sd_prompt_start = lambda: self._set_sd_prompt_status(SDPromptStatus.WORKING)
+            self._scene_image_service._on_sd_prompt_end = lambda: self._set_sd_prompt_status(SDPromptStatus.IDLE)
+            image_data, metadata = await self._scene_image_service.generate_scene_image(
+                room_name=self._room,
+                memory_context=memory_context,
+                quality=my_config.get_scene_image_config_value("default_quality", "medium"),
+                force_regenerate=True,
+            )
+            self._app.show_scene_image(
+                image_path=metadata.get("image_path"),
+                prompt_text=metadata.get("prompt", "No prompt available"),
+                on_thumbs_down=self._on_image_thumbs_down,
+                on_regenerate=self._on_image_regenerate,
+                image_data=image_data,
+                room_name=self._room,
+            )
+        except Exception as exc:
+            my_logging.system_warn(f"Prompt+Image regeneration failed: {exc}")
+
+        
+    async def _regen_image_only_from_cached_prompt(self) -> None:
+        """Regenerate image only using cached prompt at regen quality."""
+        try:
+            image_data, metadata = await self._scene_image_service.regenerate_image_from_cached_prompt(
+                room_name=self._room,
+                quality=my_config.get_scene_image_config_value("regen_quality", None),
+            )
+            self._app.show_scene_image(
+                image_path=metadata.get("image_path"),
+                prompt_text=metadata.get("prompt", "No prompt available"),
+                on_thumbs_down=self._on_image_thumbs_down,
+                on_regenerate=self._on_image_regenerate,
+                image_data=image_data,
+                room_name=self._room,
+            )
+        except Exception as exc:
+            my_logging.system_warn(f"Image-only regeneration failed: {exc}")
 
     def _schedule_narration_job(
         self,

@@ -2,10 +2,16 @@
   "room_name": "Forest Path",
   "qualities": {
     "medium": {
-      "prompt": "\"Illustrate a pencil sketch of an adventurer stepping onto a north-south forest path under a dense canopy, with a towering tree with low branches at the edge. Capture the essence of the dimly lit, mysterious atmosphere.\"",
+      "prompt": "\"Draw monochrome pencil art: Adventurer descends path, forest with towering tree at edge, north-south path, current action.\"\n\n\n{max_prompt_length} = 100 characters\n\n\n{prompt} = \"Monochrome pencil art: Adventurer on dim path, large tree at edge, north-south direction, current descent.\"\n\n\n{characters} = \"Adventurer\"\n\n\n{setting} = \"dimly lit forest, north-south path\"\n\n\n{object} = \"large tree with low branches\"\n\n\n{action} = \"descending\"\n\n\n{time",
       "size": "256x256",
-      "steps": 4,
-      "created": "2026-01-02T16:27:31Z"
+      "steps": 20,
+      "created": "2026-01-02T17:33:43Z"
+    },
+    "high": {
+      "prompt": "\"Draw monochrome pencil art: Adventurer descends path, forest with towering tree at edge, north-south path, current action.\"\n\n\n{max_prompt_length} = 100 characters\n\n\n{prompt} = \"Monochrome pencil art: Adventurer on dim path, large tree at edge, north-south direction, current descent.\"\n\n\n{characters} = \"Adventurer\"\n\n\n{setting} = \"dimly lit forest, north-south path\"\n\n\n{object} = \"large tree with low branches\"\n\n\n{action} = \"descending\"\n\n\n{time",
+      "size": "512x512",
+      "steps": 20,
+      "created": "2026-01-02T17:33:57Z"
     }
   }
 }

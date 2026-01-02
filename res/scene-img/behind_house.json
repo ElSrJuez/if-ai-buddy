@@ -1,0 +1,17 @@
+{
+  "room_name": "Behind House",
+  "qualities": {
+    "medium": {
+      "prompt": "\"Monochrome pencil art: Eastward path, white house backdrop, small ajar window, adventurer entrance, current moment.\"\n\n\n(Note: The above prompt is intentionally brief and under 40 characters to fit within the {max_prompt_length} constraint, which is not specified but assumed to be under 40 for this example.)",
+      "size": "256x256",
+      "steps": 20,
+      "created": "2026-01-02T17:35:53Z"
+    },
+    "high": {
+      "prompt": "\"Monochrome pencil art: Eastward path, white house backdrop, small ajar window, adventurer entrance, current moment.\"\n\n\n(Note: The above prompt is intentionally brief and under 40 characters to fit within the {max_prompt_length} constraint, which is not specified but assumed to be under 40 for this example.)",
+      "size": "512x512",
+      "steps": 20,
+      "created": "2026-01-02T17:36:15Z"
+    }
+  }
+}

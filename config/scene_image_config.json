@@ -6,8 +6,8 @@
   "cache_directory": "res/scene-img",
   "placeholder_image_path": "res/interactive-fiction-ai-buddy-default.png",
   "quality_presets": {
-    "medium": {"steps": 20, "size": "256x256"},
-    "high": {"steps": 20,"size": "512x512"}
+    "medium": {"steps": 10, "size": "512x512"},
+    "high": {"steps": 25,"size": "512x512"}
   },
   "default_quality": "medium",
   "regen_quality": "high"
