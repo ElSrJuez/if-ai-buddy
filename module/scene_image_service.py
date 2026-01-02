@@ -138,7 +138,10 @@ class SceneImageService:
         if self._cache.is_cached(room_name, target_quality):
             try:
                 image_data, metadata = self._cache.load_image(room_name, target_quality)
-                return image_data, metadata.to_dict()
+                # Include image path so UI can load bytes from disk if needed
+                metadata_dict = metadata.to_dict()
+                metadata_dict["image_path"] = str(self._cache.get_image_path(room_name, target_quality))
+                return image_data, metadata_dict
             except FileNotFoundError:
                 return None
         
@@ -209,7 +212,8 @@ class SceneImageService:
                 "steps": response.steps,
                 "quality": job.quality,
                 "created": response.created,
-                "room_name": job.room_name
+                "room_name": job.room_name,
+                "image_path": str(self._cache.get_image_path(job.room_name, job.quality))
             }
             
             my_logging.system_info(f"Scene image generated: {job.room_name} ({len(response.image_data)} bytes)")

@@ -1,0 +1,11 @@
+{
+  "room_name": "West of House Test",
+  "qualities": {
+    "medium": {
+      "prompt": "pencil art: a mysterious cave entrance",
+      "size": "256x256",
+      "steps": 20,
+      "created": "2026-01-02T16:59:56Z"
+    }
+  }
+}

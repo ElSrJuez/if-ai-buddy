@@ -189,6 +189,7 @@ class GameController:
             on_command=self._handle_command,
             on_player_rename=self._handle_player_rename,
             on_restart=self._handle_restart,
+            on_show_scene_image=self._handle_show_scene_image,
         )
         self._textual_app = IFBuddyApp(self._app)
         self._app._app = self._textual_app
@@ -298,6 +299,9 @@ class GameController:
 
             # Apply canonical room change detection (same as in _async_play_turn)
             room_changed = self._room != self._current_room_for_images or self._current_room_for_images is None
+            my_logging.system_debug(
+                f"Init room change check: room={self._room}, current_for_images={self._current_room_for_images}, room_changed={room_changed}"
+            )
             if room_changed:
                 self._current_room_for_images = self._room
 
@@ -314,6 +318,9 @@ class GameController:
                 
                 # Apply canonical scene image generation (same as in _async_play_turn)
                 if room_changed:
+                    my_logging.system_debug(
+                        f"Init scheduling scene image: room={self._room}"
+                    )
                     self._schedule_scene_image_generation()
 
             self._set_engine_status(EngineStatus.READY)
@@ -438,6 +445,9 @@ class GameController:
                 self._room = outcome.room_name
                 # Track room change for scene image generation (including first-time entry)
                 room_changed = self._room != self._current_room_for_images or self._current_room_for_images is None
+                my_logging.system_debug(
+                    f"Turn room change check: room={self._room}, current_for_images={self._current_room_for_images}, room_changed={room_changed}"
+                )
                 if room_changed:
                     self._current_room_for_images = self._room
 
@@ -464,6 +474,9 @@ class GameController:
             
             # Trigger scene image generation AFTER narration is scheduled
             if room_changed:
+                my_logging.system_debug(
+                    f"Turn scheduling scene image: room={self._room}"
+                )
                 self._schedule_scene_image_generation()
 
             self._set_engine_status(EngineStatus.READY)
@@ -638,7 +651,9 @@ class GameController:
                     image_path=metadata.get("image_path"),
                     prompt_text=metadata.get("prompt", "No prompt available"),
                     on_thumbs_down=self._on_image_thumbs_down,
-                    on_regenerate=self._on_image_regenerate
+                    on_regenerate=self._on_image_regenerate,
+                    image_data=image_data,
+                    room_name=self._room,
                 )
             else:
                 # Cache miss - generate new image
@@ -653,7 +668,9 @@ class GameController:
                     image_path=metadata.get("image_path"),
                     prompt_text=metadata.get("prompt", "No prompt available"),
                     on_thumbs_down=self._on_image_thumbs_down,
-                    on_regenerate=self._on_image_regenerate
+                    on_regenerate=self._on_image_regenerate,
+                    image_data=image_data,
+                    room_name=self._room,
                 )
             
         except Exception as exc:
@@ -677,6 +694,25 @@ class GameController:
         """Handle regenerate request for scene image."""
         my_logging.system_info("User requested scene image regeneration")
         self._schedule_scene_image_generation()
+
+    def _handle_show_scene_image(self) -> None:
+        """Show cached scene image popup via UI (keyboard shortcut)."""
+        try:
+            cached_result = self._scene_image_service.get_cached_image(self._room)
+            if cached_result:
+                image_data, metadata = cached_result
+                self._app.show_scene_image(
+                    image_path=metadata.get("image_path"),
+                    prompt_text=metadata.get("prompt", "No prompt available"),
+                    on_thumbs_down=self._on_image_thumbs_down,
+                    on_regenerate=self._on_image_regenerate,
+                    image_data=image_data,
+                    room_name=self._room,
+                )
+            else:
+                self._app.add_hint("No cached scene image available for this room.")
+        except Exception as exc:
+            my_logging.system_warn(f"Failed to show cached scene image: {exc}")
 
     def _schedule_narration_job(
         self,

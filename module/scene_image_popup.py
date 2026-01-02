@@ -58,6 +58,11 @@ class SceneImagePopup:
         """Show the desktop popup window."""
         if self._window is not None:
             self._window.lift()
+            try:
+                self._window.update_idletasks()
+                self._window.update()
+            except Exception:
+                pass
             return
             
         # Create root window if it doesn't exist
@@ -69,18 +74,42 @@ class SceneImagePopup:
         # Create popup window
         self._window = tk.Toplevel(root)
         self._window.title(f"Scene Image - {self.room_name}")
-        self._window.geometry("600x500")
+        # Size and position (centered)
+        width, height = 600, 500
+        try:
+            screen_w = self._window.winfo_screenwidth()
+            screen_h = self._window.winfo_screenheight()
+            x = max((screen_w - width) // 2, 0)
+            y = max((screen_h - height) // 2, 0)
+            self._window.geometry(f"{width}x{height}+{x}+{y}")
+        except Exception:
+            self._window.geometry("600x500")
         self._window.resizable(True, True)
         
-        # Configure window to stay on top but allow interaction with main app
-        self._window.attributes('-topmost', False)
-        self._window.focus_set()
+        # Raise window and ensure initial visibility
+        try:
+            self._window.attributes('-topmost', True)
+        except Exception:
+            pass
+        self._window.lift()
+        self._window.focus_force()
         
         # Handle window close
         self._window.protocol("WM_DELETE_WINDOW", self._on_window_close)
         
         self._create_widgets()
         self._update_content()
+        # Force a draw without entering mainloop
+        try:
+            self._window.update_idletasks()
+            self._window.update()
+        except Exception:
+            pass
+        # Drop topmost after showing so gameplay isn't blocked
+        try:
+            self._window.attributes('-topmost', False)
+        except Exception:
+            pass
         
         my_logging.system_info(f"Scene image popup shown: {self.room_name}")
     

@@ -376,12 +376,18 @@ class IFBuddyTUI:
         on_command: Callable[[str], None],
         on_player_rename: Callable[[], None],
         on_restart: Callable[[], None],
+        on_show_scene_image: Callable[[], None],
     ) -> None:
         self._app = app
         # status snapshot initialization and updates are delegated to the controller
         self._on_command = on_command
         self._on_player_rename = on_player_rename
         self._on_restart = on_restart
+        self._on_show_scene_image = on_show_scene_image
+
+        # External viewer process tracking (singleton)
+        self._viewer_proc = None
+        self._viewer_temp_path: str | None = None
 
         # Widgets will be set up by the app
         self.transcript_log: TranscriptLog | None = None
@@ -431,36 +437,82 @@ class IFBuddyTUI:
         if self.status_bar:
             self.status_bar.update_status(snapshot)
 
-    def show_scene_image(self, image_path: str | None, prompt_text: str, on_thumbs_down: Callable[[], None], on_regenerate: Callable[[], None]) -> None:
-        """Show the scene image in OS desktop popup window."""
-        # Load image data if path provided
-        image_data: bytes | None = None
-        if image_path:
-            try:
-                from pathlib import Path
-                image_data = Path(image_path).read_bytes()
-            except Exception as exc:
-                my_logging.system_warn(f"Failed to load image {image_path}: {exc}")
-        
-        # Get current room from the app's status bar
-        current_room = "Unknown"
-        if hasattr(self, '_app') and hasattr(self._app, 'status_bar') and self._app.status_bar:
+    def show_scene_image(self, image_path: str | None, prompt_text: str, on_thumbs_down: Callable[[], None], on_regenerate: Callable[[], None], image_data: bytes | None = None, room_name: str | None = None) -> None:
+        """Show the scene image using a standalone viewer subprocess.
+
+        This avoids event-loop conflicts and keeps the UI responsive
+        by running Tk in its own process.
+        """
+        from pathlib import Path
+        import tempfile
+        import subprocess
+        import sys as _sys
+
+        # Resolve room name from status bar
+        current_room = room_name or "Unknown"
+        if not room_name and hasattr(self, '_app') and hasattr(self._app, 'status_bar') and self._app.status_bar:
             current_room = self._app.status_bar.status.room
-        
-        # Create desktop popup
-        popup = SceneImagePopup(
-            room_name=current_room,
-            image_data=image_data,
-            prompt_text=prompt_text,
-            quality="medium",
-            on_thumbs_down=on_thumbs_down,
-            on_regenerate=on_regenerate,
-            on_hide=None  # Let popup handle its own hide logic
-        )
-        
-        # Show desktop window instead of Textual modal
-        popup.show()
-        my_logging.system_info(f"Scene image desktop popup shown: {current_room}")
+
+        # Ensure we have a file path for the image; if only bytes provided, write to temp
+        viewer_image_path = image_path
+        temp_file: tempfile.NamedTemporaryFile | None = None
+        if viewer_image_path is None and image_data is not None:
+            try:
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+                temp_file.write(image_data)
+                temp_file.flush()
+                temp_file.close()
+                viewer_image_path = temp_file.name
+                # Track temp so we can clean it later
+                self._viewer_temp_path = viewer_image_path
+            except Exception as exc:
+                my_logging.system_warn(f"Failed to write temp image for viewer: {exc}")
+
+        # Prepare subprocess command
+        cmd = [
+            _sys.executable,
+            "-m",
+            "module.scene_image_viewer",
+            "--room",
+            current_room or "Unknown",
+            "--prompt",
+            prompt_text or "",
+        ]
+        if viewer_image_path:
+            cmd.extend(["--image-path", viewer_image_path])
+
+        try:
+            # If a viewer is already running, terminate it first to avoid duplicates
+            try:
+                if self._viewer_proc and getattr(self._viewer_proc, "poll", lambda: None)() is None:
+                    self._viewer_proc.terminate()
+            except Exception:
+                pass
+
+            self._viewer_proc = subprocess.Popen(cmd)
+            my_logging.system_info(f"Scene image viewer launched: room={current_room}")
+        except Exception as exc:
+            my_logging.system_warn(f"Failed to launch scene image viewer: {exc}")
+        finally:
+            # No need to keep temp file object open; the viewer reads it by path.
+            pass
+
+    def hide_scene_image(self) -> None:
+        """Hide/close the scene image viewer if running and cleanup temp image."""
+        import os
+        try:
+            if self._viewer_proc and getattr(self._viewer_proc, "poll", lambda: None)() is None:
+                self._viewer_proc.terminate()
+        except Exception:
+            pass
+        finally:
+            self._viewer_proc = None
+            if self._viewer_temp_path:
+                try:
+                    os.unlink(self._viewer_temp_path)
+                except Exception:
+                    pass
+                self._viewer_temp_path = None
 
     # Engine status updates delegated to controller; remove duplication
 
@@ -482,6 +534,8 @@ class IFBuddyApp(App):
     TITLE = "IF AI Buddy"
     BINDINGS = [
         ("q", "quit", "Quit"),
+        ("i", "show_scene_image", "Show Scene Image"),
+        ("h", "hide_scene_image", "Hide Scene Image"),
     ]
 
     CSS = """
@@ -552,6 +606,24 @@ class IFBuddyApp(App):
     async def action_quit(self) -> None:
         """Quit the app."""
         self.exit()
+
+    async def action_show_scene_image(self) -> None:
+        """Trigger showing the cached scene image popup via controller callback."""
+        try:
+            if hasattr(self._tui, "_on_show_scene_image") and callable(self._tui._on_show_scene_image):
+                self._tui._on_show_scene_image()
+        except Exception as exc:
+            from module import my_logging
+            my_logging.system_warn(f"Failed to show scene image: {exc}")
+
+    async def action_hide_scene_image(self) -> None:
+        """Hide the scene image viewer if running."""
+        try:
+            if hasattr(self._tui, "hide_scene_image"):
+                self._tui.hide_scene_image()
+        except Exception as exc:
+            from module import my_logging
+            my_logging.system_warn(f"Failed to hide scene image: {exc}")
 
 
 __all__ = [
